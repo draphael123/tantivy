@@ -1,7 +1,6 @@
-// TANTIVY — isometric horse racer. Point-to-point flight to sanctuary,
-// the Wild Hunt sweeping the road behind the field.
-// Vertical slice: gait ladder + stamina economy + commitment cornering,
-// terraced hills, brook jumps, 3 AI rivals, the Hunt.
+// TANTIVY — isometric horse racer. A point-to-point steeplechase to sanctuary:
+// gait ladder + stamina economy + commitment cornering, terraced hills,
+// jumps, gates, mud, wildlife, and 3 AI rivals.
 
 import * as THREE from './vendor/three.module.js';
 
@@ -89,10 +88,15 @@ function brookCarve(x, z) {
 
 // ---------------------------------------------------------------- hazards
 const LOGS = [
+  { s: 195, latMin: -9.5, latMax: 3.0 },
   { s: 340, latMin: -9.5, latMax: 2.5 },
   { s: 700, latMin: -2.5, latMax: 9.5 },
 ];
+const WALLS = [
+  { s: 520, latMin: -7, latMax: 7 },
+];
 const MUD = [
+  { s: 95, lat: -3, r: 4.5 },
   { s: 262, lat: 4, r: 5 },
   { s: 487, lat: -3.5, r: 5.5 },
   { s: 642, lat: 3, r: 5 },
@@ -101,10 +105,17 @@ const GATES = [
   { s: 415, gapLat: -3.5, gapHalf: 3.0 },
   { s: 748, gapLat: 3.0, gapHalf: 3.0 },
 ];
+// hay bales: round obstacles ON the road — steer around them (or bounce off)
+const BALES = [
+  { s: 130, lat: -4 }, { s: 370, lat: 5 }, { s: 450, lat: -6 },
+  { s: 597, lat: 2 }, { s: 660, lat: -5 }, { s: 770, lat: 6 },
+].map((b) => { const p = routeAt(b.s); return { ...b, r: 1.25, x: p.x + p.nx * b.lat, z: p.z + p.nz * b.lat }; });
 // everything jumpable, sorted by route distance
 const JUMPS = [
-  ...BROOKS.map((b) => ({ s: b.s, width: b.width, latMin: -b.half, latMax: b.half, kind: 'brook', x: b.x, z: b.z, tx: b.tx, tz: b.tz, nx: b.nx, nz: b.nz })),
+  ...BROOKS.filter((b) => b.s < R.len - 30)
+    .map((b) => ({ s: b.s, width: b.width, latMin: -b.half, latMax: b.half, kind: 'brook', x: b.x, z: b.z, tx: b.tx, tz: b.tz, nx: b.nx, nz: b.nz })),
   ...LOGS.map((l) => { const p = routeAt(l.s); return { s: l.s, width: 1.5, latMin: l.latMin, latMax: l.latMax, kind: 'log', x: p.x, z: p.z, tx: p.tx, tz: p.tz, nx: p.nx, nz: p.nz }; }),
+  ...WALLS.map((l) => { const p = routeAt(l.s); return { s: l.s, width: 1.3, latMin: l.latMin, latMax: l.latMax, kind: 'wall', x: p.x, z: p.z, tx: p.tx, tz: p.tz, nx: p.nx, nz: p.nz }; }),
 ].sort((a, b) => a.s - b.s);
 function nextJump(s, lateral) {
   for (const j of JUMPS) {
@@ -445,22 +456,22 @@ for (const [rx, rz, rr, rh] of [[1020, 320, 260, 70], [900, 880, 220, 55], [280,
     if (!fenceActive(s)) continue;
     for (const side of [-1, 1]) spots.push({ s, side });
   }
-  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.18, 1.25, 0.18), woodMat, spots.length);
+  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 1.7, 0.2), woodMat, spots.length);
   posts.castShadow = true;
-  const rails = new THREE.InstancedMesh(new THREE.BoxGeometry(3.05, 0.09, 0.14), woodMat, spots.length * 2);
+  const rails = new THREE.InstancedMesh(new THREE.BoxGeometry(3.05, 0.09, 0.14), woodMat, spots.length * 3);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
   let pi = 0, ri = 0;
   for (const { s, side } of spots) {
     const rp = routeAt(s);
     const x = rp.x + rp.nx * 10 * side, z = rp.z + rp.nz * 10 * side;
     q.setFromAxisAngle(UP, -Math.atan2(rp.tz, rp.tx));
-    m4.compose(v.set(x, groundHeight(x, z) + 0.62, z), q, one);
+    m4.compose(v.set(x, groundHeight(x, z) + 0.85, z), q, one);
     posts.setMatrixAt(pi++, m4);
     const rm = routeAt(s + 1.5);
     const xm = rm.x + rm.nx * 10 * side, zm = rm.z + rm.nz * 10 * side;
     const ym = groundHeight(xm, zm);
     q.setFromAxisAngle(UP, -Math.atan2(rm.tz, rm.tx));
-    for (const h of [0.55, 1.0]) {
+    for (const h of [0.55, 1.05, 1.5]) {
       m4.compose(v.set(xm, ym + h, zm), q, one);
       rails.setMatrixAt(ri++, m4);
     }
@@ -478,20 +489,20 @@ for (const g of GATES) {
     const mid = (a + b) / 2, len = b - a;
     const x = rp.x + rp.nx * mid, z = rp.z + rp.nz * mid;
     const grp = new THREE.Group();
-    for (const h of [0.5, 0.95, 1.35]) {
+    for (const h of [0.5, 1.0, 1.5]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.1, 0.14), woodMat);
       rail.position.y = h; rail.castShadow = true; grp.add(rail);
     }
     for (const e of [a, b]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.7, 0.22), woodMat);
-      post.position.set(e - mid, 0.85, 0);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.24, 2.0, 0.24), woodMat);
+      post.position.set(e - mid, 1.0, 0);
       post.castShadow = true;
       grp.add(post);
       // gold flags mark the gap posts
       if (Math.abs(Math.abs(e - g.gapLat) - g.gapHalf) < 0.2) {
         const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.5),
           new THREE.MeshBasicMaterial({ color: 0xd9a13b, side: THREE.DoubleSide }));
-        flag.position.set(e - mid, 1.95, 0);
+        flag.position.set(e - mid, 2.3, 0);
         grp.add(flag);
       }
     }
@@ -530,6 +541,51 @@ for (const l of LOGS) {
   bar.rotation.z = -Math.atan2(tk.tz, tk.tx) + Math.PI / 2;
   bar.position.set(tk.x, groundHeight(tk.x, tk.z) + 0.15, tk.z);
   scene.add(bar);
+}
+
+// stone walls (jumpable) + takeoff bars
+for (const w of WALLS) {
+  const p = routeAt(w.s);
+  const len = w.latMax - w.latMin, mid = (w.latMin + w.latMax) / 2;
+  const x = p.x + p.nx * mid, z = p.z + p.nz * mid;
+  const grp = new THREE.Group();
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0xb8ad94 });
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 0.95, 0.55), stoneMat);
+  wall.position.y = 0.48; wall.castShadow = true; grp.add(wall);
+  for (let i = 0; i < Math.floor(len / 1.1); i++) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.62),
+      new THREE.MeshLambertMaterial({ color: 0xa79c82 }));
+    cap.position.set(w.latMin - mid + 0.6 + i * 1.1, 1.05, 0);
+    cap.rotation.y = (i % 3 - 1) * 0.1;
+    cap.castShadow = true;
+    grp.add(cap);
+  }
+  grp.position.set(x, groundHeight(x, z), z);
+  grp.rotation.y = -Math.atan2(p.nz, p.nx);
+  scene.add(grp);
+  const tk = routeAt(w.s - 5);
+  const bar = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.1),
+    new THREE.MeshBasicMaterial({ color: 0xfff3d6, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+  bar.rotation.x = -Math.PI / 2;
+  bar.rotation.z = -Math.atan2(tk.tz, tk.tx) + Math.PI / 2;
+  bar.position.set(tk.x, groundHeight(tk.x, tk.z) + 0.15, tk.z);
+  scene.add(bar);
+}
+
+// hay bales
+for (const b of BALES) {
+  const bale = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 1.4, 12),
+    new THREE.MeshLambertMaterial({ color: 0xd9b45c }));
+  bale.rotation.z = Math.PI / 2;
+  bale.rotation.y = (b.s % 7) * 0.4;
+  bale.position.set(b.x, groundHeight(b.x, b.z) + 1.0, b.z);
+  bale.castShadow = true;
+  scene.add(bale);
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1.02, 0.05, 6, 16),
+    new THREE.MeshLambertMaterial({ color: 0xa8813a }));
+  band.rotation.y = Math.PI / 2 + bale.rotation.y;
+  band.position.copy(bale.position);
+  scene.add(band);
 }
 
 // mud bogs
@@ -574,9 +630,12 @@ function pennantString(x1, y1, z1, x2, y2, z2) {
     scene.add(flag);
   }
 }
+const crowdFigures = [];
 function placeCrowd(s, count) {
   const rp = routeAt(s);
   const cols = [0x8a5a7a, 0x4e6b8a, 0x6b7d3a, 0xb5502a, 0x9a6b3f, 0xd9a13b];
+  const skins = [0xe8c49a, 0xd9a878, 0xb98455, 0x8a5f3a];
+  const hairCols = [0x46311f, 0x7a5230, 0xd9c684, 0x9a9a9a, 0x2e2118];
   for (let i = 0; i < count; i++) {
     const side = worldRng() < 0.5 ? -1 : 1;
     const lat = (11.5 + worldRng() * 2.5) * side;
@@ -584,15 +643,70 @@ function placeCrowd(s, count) {
     const p = routeAt(Math.max(2, s + along));
     const x = p.x + p.nx * lat, z = p.z + p.nz * lat;
     const grp = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.7, 3, 8),
-      new THREE.MeshLambertMaterial({ color: cols[Math.floor(worldRng() * cols.length)] }));
-    body.position.y = 0.85; body.castShadow = true; grp.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 7, 5),
-      new THREE.MeshLambertMaterial({ color: 0xe8c49a }));
-    head.position.y = 1.6; grp.add(head);
+    const tunicMat = new THREE.MeshLambertMaterial({ color: cols[Math.floor(worldRng() * cols.length)] });
+    const skinMat = new THREE.MeshLambertMaterial({ color: skins[Math.floor(worldRng() * skins.length)] });
+    // legs
+    const legGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.55, 6);
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x5c4632 });
+    for (const lx of [-0.12, 0.12]) {
+      const leg = new THREE.Mesh(legGeo, legMat);
+      leg.position.set(0, 0.28, lx);
+      grp.add(leg);
+    }
+    // tunic
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 0.75, 8), tunicMat);
+    body.position.y = 0.9; body.castShadow = true; grp.add(body);
+    // arms — some raised, cheering
+    const cheering = worldRng() < 0.45;
+    const armGeo = new THREE.CylinderGeometry(0.06, 0.055, 0.5, 5);
+    for (const az of [-0.28, 0.28]) {
+      const arm = new THREE.Mesh(armGeo, tunicMat);
+      const up = cheering && (az > 0 || worldRng() < 0.5);
+      if (up) { arm.position.set(0.05, 1.42, az); arm.rotation.x = az > 0 ? 0.5 : -0.5; }
+      else { arm.position.set(0, 1.0, az); arm.rotation.x = az > 0 ? 0.35 : -0.35; }
+      grp.add(arm);
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), skinMat);
+      hand.position.set(up ? 0.08 : 0.02, up ? 1.72 : 0.76, az * (up ? 1.45 : 1.35));
+      grp.add(hand);
+    }
+    // head + face
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), skinMat);
+    head.position.y = 1.55; grp.add(head);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x2e2118 });
+    for (const ez of [-0.09, 0.09]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 4, 3), eyeMat);
+      eye.position.set(0.21, 1.59, ez);
+      grp.add(eye);
+    }
+    // hair or hat
+    const hatRoll = worldRng();
+    if (hatRoll < 0.35) {
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.34, 7),
+        new THREE.MeshLambertMaterial({ color: cols[Math.floor(worldRng() * cols.length)] }));
+      hat.position.y = 1.85; grp.add(hat);
+    } else if (hatRoll < 0.6) {
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.32, 0.06, 9),
+        new THREE.MeshLambertMaterial({ color: 0xc9a86a }));
+      brim.position.y = 1.74; grp.add(brim);
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.16, 0.16, 8),
+        new THREE.MeshLambertMaterial({ color: 0xc9a86a }));
+      crown.position.y = 1.84; grp.add(crown);
+    } else {
+      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        new THREE.MeshLambertMaterial({ color: hairCols[Math.floor(worldRng() * hairCols.length)] }));
+      hair.position.y = 1.6; hair.rotation.z = -0.25; grp.add(hair);
+    }
     grp.position.set(x, groundHeight(x, z), z);
-    grp.rotation.y = -Math.atan2(p.nz * -side, p.nx * -side);
+    // face the road
+    grp.rotation.y = -Math.atan2(-p.nz * side, -p.nx * side);
     scene.add(grp);
+    crowdFigures.push({ grp, ph: worldRng() * 6, cheering, baseY: grp.position.y });
+  }
+}
+function updateCrowd() {
+  const t = performance.now() / 1000;
+  for (const c of crowdFigures) {
+    if (c.cheering) c.grp.position.y = c.baseY + Math.abs(Math.sin(t * 4 + c.ph)) * 0.12;
   }
 }
 (function dressStartAndFinish() {
@@ -620,6 +734,88 @@ for (let ms = 200; ms < R.len - 40; ms += 200) {
   flag.position.set(x, groundHeight(x, z) + 1.6, z);
   flag.rotation.y = Math.atan2(p.tx, p.tz);
   scene.add(flag);
+}
+
+// drifting storybook clouds
+const clouds = [];
+for (let i = 0; i < 7; i++) {
+  const grp = new THREE.Group();
+  const cm = new THREE.MeshLambertMaterial({ color: 0xfdf6e8, transparent: true, opacity: 0.92 });
+  const nBlobs = 3 + Math.floor(worldRng() * 3);
+  for (let bIdx = 0; bIdx < nBlobs; bIdx++) {
+    const r = 4 + worldRng() * 6;
+    const blob = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), cm);
+    blob.position.set((bIdx - nBlobs / 2) * r * 1.1, (worldRng() - 0.3) * 2, (worldRng() - 0.5) * 5);
+    blob.scale.y = 0.55;
+    grp.add(blob);
+  }
+  grp.position.set(worldRng() * 900 - 50, 55 + worldRng() * 18, worldRng() * 800 - 50);
+  scene.add(grp);
+  clouds.push({ grp, vx: 0.9 + worldRng() * 0.9 });
+}
+function updateClouds(dt) {
+  for (const c of clouds) {
+    c.grp.position.x += c.vx * dt;
+    if (c.grp.position.x > 950) c.grp.position.x = -120;
+  }
+}
+
+// water shimmer: collect the brook strips for a gentle pulse
+const waterMeshes = [];
+scene.traverse((o) => {
+  if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x5f96c2) waterMeshes.push(o);
+});
+function updateWater(t) {
+  for (const wmesh of waterMeshes) {
+    wmesh.material.color.setHSL(0.57, 0.35, 0.55 + Math.sin(t * 1.6 + wmesh.position.x) * 0.05);
+  }
+}
+
+// finish cloth between the posts
+(function finishCloth() {
+  const fin = routeAt(R.len - 2);
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(13.4, 1.1),
+    new THREE.MeshBasicMaterial({ color: 0xd9a13b, side: THREE.DoubleSide }));
+  cloth.position.set(fin.x, groundHeight(fin.x, fin.z) + 3.9, fin.z);
+  cloth.rotation.y = Math.atan2(fin.nx, fin.nz) + Math.PI / 2;
+  scene.add(cloth);
+  const text = new THREE.Mesh(new THREE.PlaneGeometry(13.4, 0.18),
+    new THREE.MeshBasicMaterial({ color: 0xb5502a, side: THREE.DoubleSide }));
+  text.position.copy(cloth.position); text.position.y -= 0.4;
+  text.rotation.copy(cloth.rotation);
+  scene.add(text);
+})();
+
+// hoof-dust puffs: a small pooled particle system
+const dustPool = [];
+for (let i = 0; i < 40; i++) {
+  const p = new THREE.Mesh(new THREE.SphereGeometry(0.22, 5, 4),
+    new THREE.MeshBasicMaterial({ color: 0xd9c9a8, transparent: true, opacity: 0 }));
+  p.visible = false;
+  scene.add(p);
+  dustPool.push({ mesh: p, life: 0, vx: 0, vy: 0, vz: 0 });
+}
+let dustIdx = 0;
+function spawnDust(x, y, z, kick) {
+  const d = dustPool[dustIdx++ % dustPool.length];
+  d.mesh.visible = true;
+  d.mesh.position.set(x + (Math.random() - 0.5) * 0.5, y + 0.15, z + (Math.random() - 0.5) * 0.5);
+  d.life = 0.7;
+  d.vx = (Math.random() - 0.5) * 1.2; d.vy = 0.8 + kick; d.vz = (Math.random() - 0.5) * 1.2;
+}
+function updateDust(dt) {
+  for (const d of dustPool) {
+    if (d.life <= 0) continue;
+    d.life -= dt;
+    if (d.life <= 0) { d.mesh.visible = false; continue; }
+    d.mesh.position.x += d.vx * dt;
+    d.mesh.position.y += d.vy * dt;
+    d.mesh.position.z += d.vz * dt;
+    d.vy -= 2.2 * dt;
+    d.mesh.material.opacity = d.life * 0.6;
+    const k = 1 + (0.7 - d.life) * 1.6;
+    d.mesh.scale.set(k, k * 0.7, k);
+  }
 }
 
 // flowers and bushes
@@ -722,15 +918,15 @@ const GAIT_STAM = [7, 4, 0, -6];   // per second; positive = recover. Canter is 
 function makeRacer(name, coat, riderCol, lateral, isPlayer, skill) {
   const st = routeAt(0);
   return {
-    name, isPlayer, skill, lateralHome: lateral,
+    name, isPlayer, skill, lateralHome: lateral, riderCol,
     paceMul: isPlayer ? 1 : 0.965 + skill * 0.05,
     x: st.x + st.nx * lateral, z: st.z + st.nz * lateral,
     heading: Math.atan2(st.tz, st.tx),
     speed: 0, gait: 1, stamina: 100,
     s: 0, si: 0, lateral,
     air: 0, airT: 0, stumble: 0, blownLock: 0, shiftCd: 0,
-    alive: true, finished: false, finishTime: 0, capturedTime: 0, captureHold: 0,
-    inDread: false, jumpQueued: false, liftY: 0, wasInBand: false,
+    alive: true, finished: false, finishTime: 0,
+    liftY: 0, wasInBand: false,
     vis: makeHorse(coat, riderCol), animPhase: Math.random() * 6,
   };
 }
@@ -746,47 +942,6 @@ function spawnField() {
   ];
 }
 
-// ---------------------------------------------------------------- the hunt
-const hunt = { s: -70, speed: 0, group: null, light: null, mist: null, wisps: [] };
-(function buildHunt() {
-  const g = new THREE.Group();
-  const dark = new THREE.MeshLambertMaterial({ color: 0x241d33 });
-  for (let i = 0; i < 4; i++) {
-    const h = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), dark);
-    body.scale.set(1.6, 0.9, 0.75); body.position.y = 1.5; h.add(body);
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 1.3, 6), dark);
-    neck.position.set(1.2, 2.2, 0); neck.rotation.z = -0.6; h.add(neck);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 6, 5), dark);
-    head.scale.set(1.5, 0.8, 0.7); head.position.set(1.8, 2.7, 0); h.add(head);
-    const rider = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.6, 6), dark);
-    rider.position.set(0, 3.0, 0); h.add(rider);
-    // ember eyes
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 4, 4),
-      new THREE.MeshBasicMaterial({ color: 0xb99df0 }));
-    eye.position.set(2.15, 2.75, 0.18); h.add(eye);
-    const eye2 = eye.clone(); eye2.position.z = -0.18; h.add(eye2);
-    h.position.set((i % 2) * 4 - 2, 0, Math.floor(i / 2) * 5 - 2.5);
-    h.userData.bob = i * 1.7;
-    g.add(h);
-  }
-  const mist = new THREE.Mesh(new THREE.CircleGeometry(16, 24),
-    new THREE.MeshBasicMaterial({ color: 0x2c2350, transparent: true, opacity: 0.55, depthWrite: false }));
-  mist.rotation.x = -Math.PI / 2; mist.position.y = 0.3;
-  g.add(mist);
-  for (let i = 0; i < 10; i++) {
-    const w = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 3.2),
-      new THREE.MeshBasicMaterial({ color: 0x8a75c9, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
-    w.position.set((Math.random() - 0.5) * 20, 2, (Math.random() - 0.5) * 20);
-    w.userData.ph = Math.random() * 6;
-    g.add(w); hunt.wisps.push(w);
-  }
-  const light = new THREE.PointLight(0x6b57a8, 160, 70);
-  light.position.y = 5;
-  g.add(light);
-  hunt.group = g; hunt.light = light; hunt.mist = mist;
-  scene.add(g);
-})();
 
 // ---------------------------------------------------------------- sim: one racer step
 function slopeAlong(x, z, hx, hz) {
@@ -828,7 +983,6 @@ function stepRacer(r, c, dt, world) {
   if (r.gait === 3 && slope > 0) stamRate -= slope * 34;      // climbing at gallop is ruinous
   if (offPath && stamRate < 0) stamRate *= 1.25;
   if (inMud && r.speed > 1) stamRate -= 3;                    // heavy going
-  if (r.inDread) { stamRate = stamRate > 0 ? 0 : stamRate * 2.5; }
   r.stamina = Math.min(100, r.stamina + stamRate * dt);
   if (r.stamina <= 0 && r.blownLock <= 0) {
     r.stamina = 0; r.blownLock = 3; r.gait = Math.min(r.gait, 1);
@@ -899,6 +1053,16 @@ function stepRacer(r, c, dt, world) {
       r.speed *= 0.94;
     }
   }
+  // hay bales on the road: firmer bump
+  if (r.air <= 0) for (const t of BALES) {
+    const dx = r.x - t.x, dz = r.z - t.z;
+    const d2 = dx * dx + dz * dz, rr = t.r + 0.8;
+    if (d2 < rr * rr && d2 > 0.0001) {
+      const d = Math.sqrt(d2);
+      r.x = t.x + (dx / d) * rr; r.z = t.z + (dz / d) * rr;
+      r.speed *= 0.9;
+    }
+  }
 
   projectToRoute(r);
 
@@ -939,18 +1103,16 @@ function aiControls(r, world) {
   const slope = slopeAlong(r.x, r.z, hx, hz);
   const finalStretch = (R.len - r.s) < 180;
 
-  // desired gait — a kick-and-recover rhythm paced against the Hunt's gap
-  const gap = r.s - (world.huntS !== undefined ? world.huntS : -999);
+  // desired gait — a kick-and-recover racing rhythm
   let want = 2;
   const kickStam = 12 + (1 - r.skill) * 10;
   const uphill = slope > 0.04;
-  if (gap > 110 && r.stamina < 55) want = 1;                          // comfortable: rebuild
+  if (r.stamina < 45 && !finalStretch) want = 1;                      // rebuild for the next kick
   if (slope < -0.045 && r.stamina > 15) want = 3;                     // downhill is cheap speed
-  if (slope < 0.02 && r.stamina > 70 && gap > 60) want = 3;           // spend surplus on the flat
+  if (slope < 0.02 && r.stamina > 65) want = 3;                       // spend surplus on the flat
   if (finalStretch && r.stamina > kickStam) want = 3;
-  if (r.inDread && r.stamina > 4) want = 3;
   if (uphill && want === 3 && !finalStretch) want = 2;   // never gallop a climb — it's ruinous
-  if (!r.inDread && r.stamina < 16 + (1 - r.skill) * 8) want = Math.min(want, 1);
+  if (r.stamina < 16 + (1 - r.skill) * 8) want = Math.min(want, 1);
   if (r.blownLock > 0) want = 1;
   // don't gallop into the two hard bends unless skilled
   if (r.gait !== want) { if (want > r.gait) c.gaitUp = true; else c.gaitDown = true; }
@@ -961,6 +1123,8 @@ function aiControls(r, world) {
   if (gate) latTarget = gate.gapLat;
   const mud = MUD.find((m) => m.s > r.s && m.s - r.s < 30 && Math.abs(latTarget - m.lat) < m.r + 1.5);
   if (mud) latTarget = mud.lat > 0 ? mud.lat - (mud.r + 2.5) : mud.lat + (mud.r + 2.5);
+  const bale = BALES.find((b) => b.s > r.s && b.s - r.s < 25 && Math.abs(latTarget - b.lat) < b.r + 1.2);
+  if (bale) latTarget = bale.lat > 0 ? bale.lat - 3.4 : bale.lat + 3.4;
   const look = 9 + r.speed * 1.5;
   const tp = routeAt(r.s + look);
   const targetX = tp.x + tp.nx * latTarget;
@@ -983,48 +1147,6 @@ function aiControls(r, world) {
     if (j.s - r.s < 26 && r.gait < 2 && r.blownLock <= 0) { c.gaitUp = true; }
   }
   return c;
-}
-
-// ---------------------------------------------------------------- hunt logic
-// One core used by the live race AND the headless sim — mirrors drift.
-function huntGrade(s) {
-  const hp = routeAt(Math.max(0, s));
-  const slope = slopeAlong(hp.x, hp.z, hp.tx, hp.tz);
-  return Math.min(1.3, Math.max(0.5, 1 - slope * 2.4));
-}
-function stepHuntCore(h, field, time, dt, onCapture) {
-  if (time < 4) { h.speed = 0; return; }  // a held breath after the start
-  let base = 5.8 + Math.min(1, time / 150) * 1.3;   // 5.8 -> 7.1: below any canter, far above a blown trot
-  // rubber band on the LAST living racer
-  let lastS = Infinity;
-  for (const r of field) if (r.alive && !r.finished) lastS = Math.min(lastS, r.s);
-  if (lastS === Infinity) lastS = R.len;
-  const gap = lastS - h.s;
-  if (gap > 150) base *= 1.35;
-  else if (gap < 30 && time < 60) base *= 0.9;
-  base *= huntGrade(h.s);   // the Hunt rides the same ground
-  h.speed = base;
-  h.s += base * dt;
-
-  // dread + capture
-  for (const r of field) {
-    if (!r.alive || r.finished) continue;
-    const g = r.s - h.s;
-    r.inDread = g < 40;
-    if (g < 7) {
-      r.captureHold += dt;
-      if (r.captureHold > 2) {
-        r.alive = false; r.capturedTime = time;
-        onCapture && onCapture(r);
-      }
-    } else r.captureHold = Math.max(0, r.captureHold - dt * 2);
-  }
-}
-function stepHunt(world, dt) {
-  stepHuntCore(hunt, racers, world.time, dt, (r) => {
-    if (r.isPlayer) world.onCaught && world.onCaught();
-    else world.onRivalTaken && world.onRivalTaken(r);
-  });
 }
 
 // ---------------------------------------------------------------- wildlife (live races only, not sim)
@@ -1154,12 +1276,125 @@ function readPlayerControls() {
   return c;
 }
 
+// ---------------------------------------------------------------- audio (procedural WebAudio, no assets)
+let AC = null, masterGain = null;
+let soundOn = localStorage.getItem('tantivy.sound') !== 'off';
+function ensureAudio() {
+  if (!soundOn) return;
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = AC.createGain();
+      masterGain.gain.value = 0.5;
+      masterGain.connect(AC.destination);
+      startAmbient();
+    } catch (e) { AC = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function setSound(on) {
+  soundOn = on;
+  try { localStorage.setItem('tantivy.sound', on ? 'on' : 'off'); } catch (e) {}
+  if (on) ensureAudio();
+  if (masterGain) masterGain.gain.value = on ? 0.5 : 0;
+}
+function tone(freq, dur, vol, type = 'sine', slide = 0) {
+  if (!AC || !soundOn) return;
+  const t = AC.currentTime;
+  const o = AC.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(masterGain);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+function noiseBurst(dur, freq, vol) {
+  if (!AC || !soundOn) return;
+  const len = Math.max(1, (dur * AC.sampleRate) | 0);
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = AC.createBufferSource();
+  src.buffer = buf;
+  const f = AC.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = freq;
+  const g = AC.createGain();
+  g.gain.value = vol;
+  src.connect(f); f.connect(g); g.connect(masterGain);
+  src.start();
+}
+function sfxHoof(gait) { noiseBurst(0.08, 220 + gait * 70, 0.2 + gait * 0.07); }
+function sfxThud() { noiseBurst(0.25, 140, 0.55); tone(75, 0.3, 0.35, 'sine'); }
+function sfxJump() { tone(300, 0.25, 0.14, 'sine', 260); }
+function sfxLand(sp) { noiseBurst(0.12, 300, Math.min(0.45, sp / 25)); }
+function sfxHorn(n = 1) {
+  if (!AC || !soundOn) return;
+  for (let i = 0; i < n; i++) {
+    setTimeout(() => { tone(196, 0.5, 0.22, 'sawtooth'); tone(294, 0.5, 0.1, 'sawtooth'); }, i * 550);
+  }
+}
+function sfxBells() {
+  ensureAudio();
+  if (!AC || !soundOn) return;
+  const notes = [523, 659, 784, 1047];
+  for (let i = 0; i < 6; i++) {
+    setTimeout(() => {
+      const f = notes[i % notes.length];
+      tone(f, 1.6, 0.16, 'sine');
+      tone(f * 2.76, 1.0, 0.04, 'sine');
+    }, i * 420);
+  }
+}
+function startAmbient() {
+  // soft wind loop + occasional bird chirps
+  const len = AC.sampleRate * 2;
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  const f = AC.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 420;
+  const g = AC.createGain();
+  g.gain.value = 0.028;
+  src.connect(f); f.connect(g); g.connect(masterGain);
+  src.start();
+  (function chirp() {
+    setTimeout(() => {
+      if (AC && soundOn) {
+        const base = 2200 + Math.random() * 1400;
+        tone(base, 0.08, 0.045, 'sine', 500);
+        setTimeout(() => tone(base * 1.1, 0.07, 0.035, 'sine', -300), 120);
+      }
+      chirp();
+    }, 2500 + Math.random() * 5000);
+  })();
+}
+
 // ---------------------------------------------------------------- HUD
 const el = (id) => document.getElementById(id);
 const hud = el('hud'), placard = el('placard'), gaitname = el('gaitname'),
-  stambar = el('stambar'), blownEl = el('blown'), huntgap = el('huntgap'),
-  huntbox = el('huntbox'), msgEl = el('msg'), bigmsg = el('bigmsg'),
-  vignette = el('vignette');
+  stambar = el('stambar'), blownEl = el('blown'), racetrack = el('racetrack'),
+  msgEl = el('msg'), bigmsg = el('bigmsg');
+function buildRaceDots() {
+  racetrack.innerHTML = '';
+  for (const r of racers) {
+    const d = document.createElement('div');
+    d.className = 'rdot' + (r.isPlayer ? ' you' : '');
+    d.style.background = '#' + r.riderCol.toString(16).padStart(6, '0');
+    d.style.left = '0%';
+    r.dot = d;
+    racetrack.appendChild(d);
+  }
+}
+function updateGaitHint() {
+  el('gaithint').innerHTML =
+    `<kbd>${keyName(KEYS.gaitUp)}</kbd> faster · <kbd>${keyName(KEYS.gaitDown)}</kbd> slower · <kbd>${keyName(KEYS.jump)}</kbd> jump`;
+}
 const pips = [...document.querySelectorAll('.pip')];
 let msgTimer = 0;
 function flash(text, secs = 2) { msgEl.textContent = text; msgTimer = secs; }
@@ -1182,16 +1417,15 @@ function updateHUD(world) {
   stambar.className = p.stamina < 20 ? 'crit' : (p.stamina < 45 ? 'low' : '');
   stambar.id = 'stambar';
   blownEl.textContent = p.blownLock > 0 && p.stamina < 25 ? 'BLOWN — the horse needs breath' : '';
-  const gap = Math.max(0, Math.round(p.s - hunt.s));
-  huntgap.textContent = (p.alive && gap < 500) ? gap + 'm' : '—';
-  huntbox.classList.toggle('close', p.inDread && p.alive);
-  vignette.style.opacity = p.inDread && p.alive ? 1 : 0;
+  for (const r of racers) {
+    if (r.dot) r.dot.style.left = Math.min(100, Math.max(0, (r.s / R.len) * 100)) + '%';
+  }
   if (msgTimer > 0) { msgTimer -= world.dt; if (msgTimer <= 0) msgEl.textContent = ''; }
   // jump prompt
   const j = nextJump(p.s, p.lateral);
   if (j && p.air <= 0 && j.s - p.s < 30 && j.s - p.s > 0 && msgTimer <= 0) {
     msgEl.textContent = j.s - p.s < p.speed * 0.55 + 3 ? 'JUMP!'
-      : (j.kind === 'log' ? 'Log ahead…' : 'Brook ahead…');
+      : ({ log: 'Log ahead…', wall: 'Stone wall ahead…', brook: 'Brook ahead…' }[j.kind]);
   } else if (msgTimer <= 0 && (msgEl.textContent.endsWith('ahead…') || msgEl.textContent === 'JUMP!')) {
     msgEl.textContent = '';
   }
@@ -1213,36 +1447,24 @@ function updateRacerVisual(r, dt) {
   v.blob.position.set(r.x, gy + 0.08, r.z);
   const sh = 1 - Math.min(0.6, r.liftY / 4);
   v.blob.scale.set(sh, sh, sh);
-  if (!r.alive) {
-    // spirited away: lift and fade
-    v.group.position.y += (world.time - r.capturedTime) * 3;
-    v.group.rotation.y += dt * 2;
-    v.group.traverse((o) => {
-      if (o.material) { o.material.transparent = true; o.material.opacity = Math.max(0, 1 - (world.time - r.capturedTime) * 0.4); }
-    });
-    v.blob.visible = false;
-  }
-}
-function updateHuntVisual(dt) {
-  const hp = routeAt(Math.max(0, hunt.s));
-  let hx = hp.x, hz = hp.z;
-  if (hunt.s < 0) { hx += hp.tx * hunt.s; hz += hp.tz * hunt.s; } // extrapolate behind the start
-  const gy = groundHeight(hx, hz);
-  hunt.group.position.set(hx, gy, hz);
-  hunt.group.rotation.y = -Math.atan2(hp.tz, hp.tx);
-  const t = world.time;
-  hunt.group.children.forEach((ch) => {
-    if (ch.userData.bob !== undefined) {
-      ch.position.y = Math.abs(Math.sin(t * 6 + ch.userData.bob)) * 0.5;
+  // hoof dust at speed
+  if (r.air <= 0 && r.speed > 7) {
+    r.dustAcc = (r.dustAcc || 0) + dt * r.speed;
+    if (r.dustAcc > 3.2) {
+      r.dustAcc = 0;
+      spawnDust(r.x - Math.cos(r.heading) * 1.3, gy, r.z - Math.sin(r.heading) * 1.3, r.speed / 14);
     }
-  });
-  for (const w of hunt.wisps) {
-    w.position.y = 2 + Math.sin(t * 1.4 + w.userData.ph) * 1.2;
-    w.rotation.y = t * 0.7 + w.userData.ph;
-    w.material.opacity = 0.22 + 0.18 * Math.sin(t * 2 + w.userData.ph * 3);
   }
-  hunt.mist.material.opacity = 0.32 + 0.1 * Math.sin(t * 1.8);
-  hunt.light.intensity = 140 + Math.sin(t * 3) * 40;
+  // player audio: hoofbeats, jump, landing
+  if (r.isPlayer) {
+    if (r.air <= 0 && r.speed > 1.2) {
+      r.hoofAcc = (r.hoofAcc || 0) + dt * r.speed;
+      if (r.hoofAcc > 2.6) { r.hoofAcc %= 2.6; sfxHoof(r.gait); }
+    }
+    if (r.air > 0 && !r.wasAirVis) sfxJump();
+    if (r.air <= 0 && r.wasAirVis) sfxLand(r.speed);
+    r.wasAirVis = r.air > 0;
+  }
 }
 
 // ---------------------------------------------------------------- occluder fade
@@ -1296,14 +1518,12 @@ let state = 'home';
 let tut = null;
 const world = {
   time: 0, dt: 0, rng: mulberry32(Date.now() & 0xffff),
-  onBlown: () => flash('BLOWN! Drop to trot and breathe', 2.5),
-  onStumble: () => flash('Stumbled!', 2),
-  onCaught: () => { if (state === 'tut') tutCaught(); else endRace(true); },
-  onRivalTaken: (r) => flash(`${r.name} was taken by the Hunt…`, 3),
+  onBlown: () => { flash('BLOWN! Drop to trot and breathe', 2.5); sfxThud(); },
+  onStumble: () => { flash('Stumbled!', 2); sfxThud(); },
 };
 let countdown = 0;
 
-function hideOverlays() { for (const id of ['home', 'settings', 'pause', 'results']) el(id).classList.remove('on'); }
+function hideOverlays() { for (const id of ['home', 'settings', 'pause', 'results', 'levels']) el(id).classList.remove('on'); }
 function gotoHome() {
   paused = false;
   hideOverlays();
@@ -1326,19 +1546,20 @@ function restart() {
   el('tutbox').classList.remove('on');
   spawnField();
   resetHazards();
-  hunt.s = -70;
   world.time = 0;
   camInit = false;
   tut = null;
   state = 'count';
   countdown = 3.0;
   hud.classList.add('on');
+  buildRaceDots();
+  updateGaitHint();
   bigmsg.textContent = '3';
 }
-function beginRace() { restart(); }
+function beginRace() { ensureAudio(); restart(); }
 
 // ---------------------------------------------------------------- settings UI
-function openSettings() { el('home').classList.remove('on'); el('settings').classList.add('on'); buildKeyRows(); }
+function openSettings() { el('home').classList.remove('on'); el('settings').classList.add('on'); buildKeyRows(); refreshSoundBtn(); }
 function closeSettings() {
   listeningAction = null;
   el('settings').classList.remove('on');
@@ -1364,15 +1585,36 @@ function updateHomeHint() {
     `${keyName(KEYS.jump)} jump · ${keyName(KEYS.camL)}/${keyName(KEYS.camR)} camera · ${keyName(KEYS.pause)} pause`;
 }
 
-el('ridebtn').addEventListener('click', beginRace);
+// ---------------------------------------------------------------- level select
+const LEVELS = [
+  { id: 'vale', name: 'The Vale Road', desc: '807m · a hard climb, three logs, a stone wall, a brook, two gates. First to the bells.' },
+];
+function openLevels() {
+  el('home').classList.remove('on');
+  el('levels').classList.add('on');
+  const list = el('levellist');
+  list.innerHTML = '';
+  for (const lv of LEVELS) {
+    const b = document.createElement('button');
+    b.className = 'levelcard';
+    b.innerHTML = `<div class="lname">${lv.name}</div><div class="ldesc">${lv.desc}</div>`;
+    b.addEventListener('click', () => beginRace(lv.id));
+    list.appendChild(b);
+  }
+}
+function refreshSoundBtn() { el('soundbtn').textContent = 'SOUND: ' + (soundOn ? 'ON' : 'OFF'); }
+
+el('ridebtn').addEventListener('click', openLevels);
+el('levelback').addEventListener('click', () => { el('levels').classList.remove('on'); el('home').classList.add('on'); });
 el('tutbtn').addEventListener('click', beginTutorial);
 el('setbtn').addEventListener('click', openSettings);
 el('setback').addEventListener('click', closeSettings);
+el('soundbtn').addEventListener('click', () => { setSound(!soundOn); refreshSoundBtn(); });
 el('resetkeys').addEventListener('click', () => { KEYS = { ...DEFAULT_KEYS }; saveKeys(); buildKeyRows(); });
 el('againbtn').addEventListener('click', beginRace);
 el('resmenubtn').addEventListener('click', gotoHome);
 el('resumebtn').addEventListener('click', togglePause);
-el('prestartbtn').addEventListener('click', restart);
+el('prestartbtn').addEventListener('click', () => restart());
 el('pmenubtn').addEventListener('click', gotoHome);
 updateHomeHint();
 
@@ -1383,22 +1625,20 @@ function spawnSolo() {
 }
 function tutMsg(html) { const t = el('tutbox'); t.innerHTML = html; t.classList.add('on'); }
 function beginTutorial() {
+  ensureAudio();
   hideOverlays();
   paused = false;
   spawnSolo();
   resetHazards();
-  hunt.s = -2000;
   world.time = 0;
   camInit = false;
   state = 'tut';
-  tut = { stage: 0, t: 0, gallopHeld: 0, dreadT: 0 };
+  tut = { stage: 0, t: 0, gallopHeld: 0 };
   hud.classList.add('on');
+  buildRaceDots();
+  updateGaitHint();
   bigmsg.textContent = '';
   tutMsg(`The paddock road. Shift up through the gaits: press <kbd>${keyName(KEYS.gaitUp)}</kbd> until you reach <b>CANTER</b>.`);
-}
-function tutCaught() {
-  tutMsg('The Hunt swept you up — in a true race, that is the end of your ride.');
-  tut.stage = 99; tut.t = 0;
 }
 function tutStep(dt) {
   const p = racers[0];
@@ -1449,75 +1689,42 @@ function tutStep(dt) {
       break;
     case 7:
       if (p.s > 575) {
-        tut.stage = 8; tut.dreadT = 0;
-        hunt.s = p.s - 90;
-        tutMsg('<b>The horns sound.</b> The Hunt rides behind you — inside its dread your stamina bleeds and will not return. <b>Gallop clear!</b>');
-        flash('The horns sound behind you…', 3);
+        tut.stage = 8; tut.t = 0;
+        tutMsg('<b>Well ridden — that is the whole craft.</b> Gates, mud, logs, brooks and a fresh horse between you and the bells. Off to a true race!');
       }
       break;
-    case 8: {
-      // scripted hunt: closes to ~45m and hangs there — the player FEELS dread without real danger
-      const want = p.s - 42;
-      hunt.s += Math.min(10, Math.max(4.5, (want - hunt.s) * 0.6)) * dt;
-      hunt.speed = 8;
-      const gap = p.s - hunt.s;
-      p.inDread = gap < 40;
-      if (p.inDread) tut.dreadT += dt;
-      if (gap < 7) { tutCaught(); break; }
-      if (tut.dreadT > 6 && gap > 50) {
-        tut.stage = 9; tut.t = 0; p.inDread = false;
-        tutMsg('<b>Well ridden.</b> Reach the bells before the Hunt reaches you — and never be last when the horns sound.');
-      }
-      break;
-    }
-    case 9:
-      if (tut.t > 5) gotoHome();
-      break;
-    case 99:
-      if (tut.t > 4) gotoHome();
+    case 8:
+      if (tut.t > 6) gotoHome();
       break;
   }
 }
 
-function endRace(caught) {
+function endRace() {
   state = 'done';
   // fast-forward the rest of the field headlessly so results are complete
   let guard = 0;
   const dt = 1 / 30;
-  while (racers.some((r) => r.alive && !r.finished) && guard++ < 30 * 240) {
+  while (racers.some((r) => !r.finished) && guard++ < 30 * 240) {
     world.time += dt;
-    world.huntS = hunt.s;
-    for (const r of racers) if (!r.isPlayer || (!caught && !r.finished)) {
-      if (r.alive && !r.finished) stepRacer(r, aiControls(r, world), dt, world);
-    }
+    for (const r of racers) if (!r.finished && !r.isPlayer) stepRacer(r, aiControls(r, world), dt, world);
     collideField(racers);
-    // player, if caught, is gone; if finished, skip
-    stepHunt(world, dt);
-    if (caught) {
-      const p = racers[0];
-      if (p.alive && !p.finished) { p.alive = false; p.capturedTime = world.time; }
-    }
   }
-  showResults(caught);
+  showResults();
 }
-function showResults(caught) {
+function showResults() {
   const p = racers[0];
-  const ranked = [...racers].sort((a, b) => {
-    const ka = a.finished ? a.finishTime : 1e6 + (a.alive ? -a.s : 1e5 - a.capturedTime);
-    const kb = b.finished ? b.finishTime : 1e6 + (b.alive ? -b.s : 1e5 - b.capturedTime);
-    return ka - kb;
-  });
-  el('resh').textContent = caught ? 'Taken by the Hunt' : (ranked[0] === p ? 'First to the Bells!' : 'Sanctuary');
-  el('ressub').textContent = caught
-    ? 'The horns found you on the road.'
-    : `You reached sanctuary in ${fmtTime(p.finishTime)}.`;
-  const rows = ranked.map((r, i) => {
-    const res = r.finished ? fmtTime(r.finishTime) : (r.alive ? 'on the road' : '☠ taken');
-    return `<tr><td>${i + 1}.</td><td>${r.name}${r.isPlayer ? ' ⭑' : ''}</td><td class="t">${res}</td></tr>`;
-  }).join('');
+  const ranked = [...racers].sort((a, b) =>
+    (a.finished ? a.finishTime : 1e9 - a.s) - (b.finished ? b.finishTime : 1e9 - b.s));
+  const place = ranked.indexOf(p) + 1;
+  el('resh').textContent = place === 1 ? 'First to the Bells!' : `${ordinal(place)} to the Bells`;
+  el('ressub').textContent = `You reached sanctuary in ${fmtTime(p.finishTime)}.`;
+  const rows = ranked.map((r, i) =>
+    `<tr><td>${i + 1}.</td><td>${r.name}${r.isPlayer ? ' ⭑' : ''}</td><td class="t">${r.finished ? fmtTime(r.finishTime) : 'on the road'}</td></tr>`
+  ).join('');
   el('restable').innerHTML = rows;
   el('results').classList.add('on');
   hud.classList.remove('on');
+  sfxBells();
 }
 
 // ---------------------------------------------------------------- main loop
@@ -1540,13 +1747,13 @@ function advance(dt) {
       state = 'run';
       bigmsg.textContent = 'RIDE!';
       setTimeout(() => { if (bigmsg.textContent === 'RIDE!') bigmsg.textContent = ''; }, 900);
-      flash('The horns sound behind you…', 3);
+      flash(`${keyName(KEYS.gaitUp)} shifts up a gait — gallop drains the horse, trot restores it`, 4.5);
+      sfxHorn(2);
     }
   }
 
   if (state === 'run') {
     world.time += dt;
-    world.huntS = hunt.s;
     const pc = autopilot ? aiControls(racers[0], world) : readPlayerControls();
     stepRacer(racers[0], pc, dt, world);
     for (let i = 1; i < racers.length; i++) {
@@ -1554,14 +1761,12 @@ function advance(dt) {
     }
     collideField(racers);
     stepDeer(dt);
-    stepHunt(world, dt);
     const p = racers[0];
-    if (p.finished) endRace(false);
+    if (p.finished) endRace();
   }
 
   if (state === 'tut') {
     world.time += dt;
-    world.huntS = hunt.s;
     stepRacer(racers[0], readPlayerControls(), dt, world);
     stepDeer(dt);
     tutStep(dt);
@@ -1569,10 +1774,10 @@ function advance(dt) {
 
   if (state === 'run' || state === 'count' || state === 'done' || state === 'tut') {
     for (const r of racers) updateRacerVisual(r, dt);
-    updateHuntVisual(dt);
     updateCamera(dt);
     occluderFade(dt);
     updateDeerVisuals(dt);
+    updateDust(dt);
     if (state !== 'done') updateHUD(world);
   } else {
     // home menu: slow orbit over the start
@@ -1582,6 +1787,9 @@ function advance(dt) {
     camera.position.set(st.x + Math.cos(t * 0.1) * 60, 62, st.z + Math.sin(t * 0.1) * 60);
     camera.lookAt(camTarget);
   }
+  updateClouds(dt);
+  updateWater(performance.now() / 1000);
+  updateCrowd();
   skyDome.position.copy(camTarget);
   renderer.render(scene, camera);
 }
@@ -1596,49 +1804,41 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- headless sim
 // TANTIVY.sim(n): n races, all four saddles ridden by the AI policy at varied
-// skill. Verifies the fight happened: reports captures, finish times, hunt reach.
+// skill. Verifies the race happened: reports finish rates and times.
 function sim(n = 21, seed = 1234, trace = false) {
   const results = [];
   const traceLog = [];
   for (let race = 0; race < n; race++) {
     const rng = mulberry32(seed + race * 977);
-    const w = { time: 0, rng, onBlown: null, onStumble: null, onCaught: null, onRivalTaken: null };
+    const w = { time: 0, rng, onBlown: null, onStumble: null };
     // mirror of the live field: player-as-bot, Marrow, Bracken, Dove
     const field = [
       makeRacerHeadless('A', 0, 1.0), makeRacerHeadless('B', -4.5, 0.9),
       makeRacerHeadless('C', 4.5, 0.75), makeRacerHeadless('D', -9, 0.68),
     ];
-    const h = { s: -70 };
     const dt = 1 / 30;
     let guard = 0, lastLog = -1;
-    while (field.some((r) => r.alive && !r.finished) && guard++ < 30 * 300) {
+    while (field.some((r) => !r.finished) && guard++ < 30 * 300) {
       w.time += dt;
-      w.huntS = h.s;
-      for (const r of field) if (r.alive && !r.finished) stepRacer(r, aiControls(r, w), dt, w);
+      for (const r of field) if (!r.finished) stepRacer(r, aiControls(r, w), dt, w);
       collideField(field);
-      stepHuntCore(h, field, w.time, dt, null);
-      for (const r of field) if (r.inDread) r.maxDread = Math.max(r.maxDread || 0, 1);
       if (trace && race === 0 && Math.floor(w.time) > lastLog) {
         lastLog = Math.floor(w.time);
         traceLog.push({
-          t: lastLog, hunt: +h.s.toFixed(0),
+          t: lastLog,
           f: field.map((r) => ({
             n: r.name, s: +r.s.toFixed(0), g: r.gait, v: +r.speed.toFixed(1),
             st: +r.stamina.toFixed(0), lat: +r.lateral.toFixed(1),
-            air: +r.air.toFixed(2), stum: +r.stumble.toFixed(1),
-            alive: r.alive, fin: r.finished,
+            air: +r.air.toFixed(2), stum: +r.stumble.toFixed(1), fin: r.finished,
           })),
         });
       }
     }
     results.push({
       timedOut: guard >= 30 * 300,
-      huntS: Math.round(h.s),
       field: field.map((r) => ({
         name: r.name, skill: r.skill, finished: r.finished,
         time: r.finished ? +r.finishTime.toFixed(1) : null,
-        captured: !r.alive, at: r.alive ? null : Math.round(r.s),
-        maxDread: r.maxDread,
       })),
     });
   }
@@ -1649,7 +1849,6 @@ function sim(n = 21, seed = 1234, trace = false) {
     agg[name] = {
       skill: runs[0].skill,
       finishRate: +(runs.filter((r) => r.finished).length / n).toFixed(2),
-      capturedRate: +(runs.filter((r) => r.captured).length / n).toFixed(2),
       avgTime: +(runs.filter((r) => r.finished).reduce((a, r) => a + r.time, 0) /
         Math.max(1, runs.filter((r) => r.finished).length)).toFixed(1),
     };
@@ -1664,8 +1863,7 @@ function sim(n = 21, seed = 1234, trace = false) {
       heading: Math.atan2(st.tz, st.tx),
       speed: 0, gait: 1, stamina: 100, s: 0, si: 0, lateral,
       air: 0, airT: 0, stumble: 0, blownLock: 0, shiftCd: 0,
-      alive: true, finished: false, finishTime: 0, capturedTime: 0, captureHold: 0,
-      inDread: false, maxDread: 0,
+      alive: true, finished: false, finishTime: 0,
       vis: { group: { position: {}, rotation: {}, traverse: () => {} }, legs: [], cape: { rotation: {} }, blob: { position: {}, scale: {}, visible: true } },
       animPhase: 0,
     };
@@ -1675,7 +1873,7 @@ function sim(n = 21, seed = 1234, trace = false) {
 let autopilot = false;
 window.TANTIVY = {
   sim, world, routeLen: R.len,
-  get racers() { return racers; }, get hunt() { return hunt; },
+  get racers() { return racers; },
   get state() { return state; },
   debug: {
     start: () => beginRace(),

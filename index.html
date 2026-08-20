@@ -53,16 +53,22 @@
   #stambar.crit { background: var(--russet); }
   #blown { font-size: 14px; color: var(--russet); font-weight: bold; height: 18px; margin-top: 4px; }
 
-  #huntbox {
-    position: absolute; right: 16px; bottom: 16px; text-align: right;
-    background: #241d33; color: #cfc4ee; border: 2px solid var(--dread); border-radius: 10px;
-    padding: 10px 14px; box-shadow: 3px 3px 0 rgba(20,12,30,.5);
-    min-width: 200px;
+  #racebar {
+    position: absolute; right: 16px; bottom: 16px;
+    background: var(--cream); border: 2px solid var(--ink); border-radius: 10px;
+    padding: 10px 14px; box-shadow: 3px 3px 0 rgba(40,25,15,.35);
+    width: 260px;
   }
-  #huntbox .lbl { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: .8; }
-  #huntgap { font-size: 24px; font-weight: bold; font-variant-numeric: tabular-nums; }
-  #huntbox.close { animation: pulse 0.8s infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 18px var(--dread); } }
+  #racebar .lbl { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: .7; margin-bottom: 6px; }
+  #racetrack {
+    position: relative; height: 10px; border: 2px solid var(--ink); border-radius: 6px;
+    background: linear-gradient(90deg, #cdb98a, #e2d0ab);
+  }
+  .rdot {
+    position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
+    transform: translate(-50%, -50%); border: 1.5px solid var(--ink);
+  }
+  .rdot.you { width: 14px; height: 14px; z-index: 2; }
 
   #msg {
     position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%);
@@ -74,10 +80,10 @@
     font-size: 84px; font-weight: bold; color: var(--cream);
     text-shadow: 4px 4px 0 rgba(40,25,15,.6);
   }
-  #vignette {
-    position: fixed; inset: 0; pointer-events: none; opacity: 0;
-    background: radial-gradient(ellipse at center, transparent 52%, rgba(74,52,138,.55) 100%);
-    transition: opacity .3s;
+  #gaithint { font-size: 13px; opacity: .75; margin-top: 6px; }
+  #gaithint kbd {
+    font-family: inherit; background: #e2d0ab; border: 1px solid var(--ink);
+    border-radius: 4px; padding: 0 5px; font-size: 12px;
   }
 
   /* tutorial prompt */
@@ -136,21 +142,33 @@
   .keychip.listening { background: var(--gold); animation: pulse2 .7s infinite; }
   @keyframes pulse2 { 50% { filter: brightness(1.15); } }
   .hint { font-size: 13px; opacity: .7; margin-top: 8px; }
+
+  /* level select */
+  .levelcard {
+    display: block; width: 100%; margin: 10px 0; text-align: left; cursor: pointer;
+    font-family: inherit; color: var(--ink);
+    background: #efe0bd; border: 2px solid var(--ink); border-radius: 12px;
+    padding: 14px 18px; box-shadow: 3px 3px 0 rgba(30,20,10,.3);
+  }
+  .levelcard:hover { filter: brightness(1.05); }
+  .levelcard .lname { font-size: 22px; font-weight: bold; color: var(--russet); }
+  .levelcard .ldesc { font-size: 14px; margin-top: 3px; opacity: .85; }
+  .levelcard.locked { opacity: .45; cursor: default; }
 </style>
 </head>
 <body>
 <div id="app"></div>
 
 <div id="hud">
-  <div id="vignette"></div>
   <div id="placard"><span class="pos">4th</span> &nbsp;<span class="time">0:00.0</span></div>
   <div id="gaitbox">
     <div id="gaitname">CANTER</div>
     <div id="gaitpips"><div class="pip"></div><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
     <div id="stamwrap"><div id="stambar"></div></div>
     <div id="blown"></div>
+    <div id="gaithint"></div>
   </div>
-  <div id="huntbox"><div class="lbl">The Hunt</div><div id="huntgap">—</div></div>
+  <div id="racebar"><div class="lbl">The Road</div><div id="racetrack"></div></div>
   <div id="tutbox"></div>
   <div id="msg"></div>
   <div id="bigmsg"></div>
@@ -159,11 +177,20 @@
 <div id="home" class="overlay on">
   <div class="card">
     <h1>TANTIVY</h1>
-    <div class="tag">Ride hard. Reach the bells. Don't be last when the horns sound.</div>
+    <div class="tag">Ride hard. Mind the horse. First to the bells.</div>
     <button id="ridebtn" class="mbtn">RIDE</button>
     <button id="tutbtn" class="mbtn alt">TUTORIAL</button>
     <button id="setbtn" class="mbtn dim">SETTINGS</button>
     <p class="hint" id="homekeys"></p>
+  </div>
+</div>
+
+<div id="levels" class="overlay">
+  <div class="card">
+    <h2>Choose a Course</h2>
+    <div class="tag">More roads are being surveyed…</div>
+    <div id="levellist"></div>
+    <button id="levelback" class="mbtn dim">BACK</button>
   </div>
 </div>
 
@@ -173,6 +200,7 @@
     <div class="tag">Click a key to rebind it, then press the new key.</div>
     <div id="keyrows"></div>
     <p class="hint">Arrow keys always steer and shift gaits as a fallback.</p>
+    <button id="soundbtn" class="mbtn alt">SOUND: ON</button>
     <button id="resetkeys" class="mbtn dim">RESET TO DEFAULTS</button>
     <button id="setback" class="mbtn">DONE</button>
   </div>
