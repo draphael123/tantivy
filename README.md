@@ -3,14 +3,15 @@
 Isometric horse racer. A point-to-point steeplechase to sanctuary —
 **ride hard, mind the horse, first to the bells.**
 
-v0.3: the Wild Hunt is CUT (a new pressure mechanic is TBD) — it's a pure race
-against 3 AI rivals on one 807m fenced course. Home menu + level select +
-guided tutorial + settings (rebindable keys, sound toggle) + pause. Rotatable
-camera (Q/E, 90° stops), horse-vs-horse collision, hazards: mud bogs (×4),
-fallen logs (×3), a stone wall, cross-fence gates with flagged gaps (×2), hay
-bales on the road (×6), and deer crossings (×2). Spectators with limbs, faces,
-hats and cheering; clouds, hoof dust, water shimmer; procedural WebAudio
-(hoofbeats by gait, horn, finish bells, wind + birdsong).
+v0.4: three speed tiers (TROT/CANTER/GALLOP), WASD camera-relative riding,
+speed on SHIFT/X or direct 1/2/3, clean-jump speed surges, difficulty select
+(GENTLE/FAIR/FIERCE), minimap, three camera views (V) + Q/E rotation,
+speed-feel package (zoom pull, camera lead, gallop shake, wind streaks,
+speed-tied wind audio), and a lived-in course: windmill, farmstead + sheep,
+orchard, standing stones, finish village, bird flocks, chimney smoke,
+hedgerows, painted start line and checkered finish. Music: Kevin MacLeod
+(incompetech.com, CC-BY 4.0) — "Teller of the Tales" (menu), "Fiddles
+McGinty" (race). The Wild Hunt was cut in v0.3; replacement mechanic TBD.
 Storybook painterly, Three.js fixed-iso, no build step.
 
 ## Run
@@ -25,10 +26,10 @@ cache stale modules.
 
 ## Controls (rebindable in Settings; arrows always work as fallback)
 
-- **W/S** or **↑/↓** — gait up / down (walk · trot · canter · gallop)
-- **A/D** or **←/→** — steer
-- **Space** — jump brooks and logs (canter or better)
-- **Q/E** — rotate the camera in 90° steps
+- **WASD** — ride (camera-relative)
+- **Shift / X** or **1/2/3** — speed tier (trot · canter · gallop)
+- **Space** — jump brooks, logs, walls (canter or better; clean jumps grant a surge)
+- **Q/E** — rotate camera · **V** — camera view (classic/low/high)
 - **Esc/P** — pause · **R** — restart
 
 ## The three riding systems (the pillars)

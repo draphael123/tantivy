@@ -56,19 +56,18 @@
   #racebar {
     position: absolute; right: 16px; bottom: 16px;
     background: var(--cream); border: 2px solid var(--ink); border-radius: 10px;
-    padding: 10px 14px; box-shadow: 3px 3px 0 rgba(40,25,15,.35);
-    width: 260px;
+    padding: 10px 14px 8px; box-shadow: 3px 3px 0 rgba(40,25,15,.35);
   }
-  #racebar .lbl { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: .7; margin-bottom: 6px; }
-  #racetrack {
-    position: relative; height: 10px; border: 2px solid var(--ink); border-radius: 6px;
-    background: linear-gradient(90deg, #cdb98a, #e2d0ab);
+  #racebar .lbl { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: .7; margin-bottom: 4px; }
+  #minimap { display: block; }
+
+  #diffrow { display: flex; gap: 8px; justify-content: center; margin: 4px 0 12px; }
+  .diffbtn {
+    font-family: inherit; font-size: 15px; font-weight: bold; color: var(--ink);
+    background: #e2d0ab; border: 2px solid var(--ink); border-radius: 8px;
+    padding: 5px 16px; cursor: pointer;
   }
-  .rdot {
-    position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
-    transform: translate(-50%, -50%); border: 1.5px solid var(--ink);
-  }
-  .rdot.you { width: 14px; height: 14px; z-index: 2; }
+  .diffbtn.active { background: var(--russet); color: var(--cream); }
 
   #msg {
     position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%);
@@ -80,6 +79,10 @@
     font-size: 84px; font-weight: bold; color: var(--cream);
     text-shadow: 4px 4px 0 rgba(40,25,15,.6);
   }
+  #bigmsg.pop { animation: pop .5s ease-out; }
+  @keyframes pop { 0% { transform: translate(-50%,-50%) scale(1.8); opacity: .4; } 100% { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
+  #placard.bump { animation: bump .45s ease-out; }
+  @keyframes bump { 30% { transform: scale(1.12); } 100% { transform: scale(1); } }
   #gaithint { font-size: 13px; opacity: .75; margin-top: 6px; }
   #gaithint kbd {
     font-family: inherit; background: #e2d0ab; border: 1px solid var(--ink);
@@ -163,12 +166,12 @@
   <div id="placard"><span class="pos">4th</span> &nbsp;<span class="time">0:00.0</span></div>
   <div id="gaitbox">
     <div id="gaitname">CANTER</div>
-    <div id="gaitpips"><div class="pip"></div><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
+    <div id="gaitpips"><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
     <div id="stamwrap"><div id="stambar"></div></div>
     <div id="blown"></div>
     <div id="gaithint"></div>
   </div>
-  <div id="racebar"><div class="lbl">The Road</div><div id="racetrack"></div></div>
+  <div id="racebar"><div class="lbl">The Vale Road</div><canvas id="minimap" width="240" height="150"></canvas></div>
   <div id="tutbox"></div>
   <div id="msg"></div>
   <div id="bigmsg"></div>
@@ -188,7 +191,12 @@
 <div id="levels" class="overlay">
   <div class="card">
     <h2>Choose a Course</h2>
-    <div class="tag">More roads are being surveyed…</div>
+    <div class="tag">Field strength</div>
+    <div id="diffrow">
+      <button class="diffbtn" data-diff="easy">GENTLE</button>
+      <button class="diffbtn active" data-diff="fair">FAIR</button>
+      <button class="diffbtn" data-diff="hard">FIERCE</button>
+    </div>
     <div id="levellist"></div>
     <button id="levelback" class="mbtn dim">BACK</button>
   </div>
@@ -201,6 +209,8 @@
     <div id="keyrows"></div>
     <p class="hint">Arrow keys always steer and shift gaits as a fallback.</p>
     <button id="soundbtn" class="mbtn alt">SOUND: ON</button>
+    <button id="musicbtn" class="mbtn alt">MUSIC: ON</button>
+    <p class="hint">Music: "Teller of the Tales", "Fiddles McGinty" — Kevin MacLeod (incompetech.com), CC-BY 4.0</p>
     <button id="resetkeys" class="mbtn dim">RESET TO DEFAULTS</button>
     <button id="setback" class="mbtn">DONE</button>
   </div>

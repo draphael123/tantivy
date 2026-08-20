@@ -204,9 +204,22 @@ function sizeCamera() {
 }
 sizeCamera();
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); sizeCamera(); });
-// rotatable iso: 4 yaw stops, 90° apart, smoothly interpolated
-const CAM_R = Math.hypot(52, 52), CAM_H = 46;
+// rotatable iso: 4 yaw stops, 90° apart, smoothly interpolated; V cycles elevation presets
+const CAM_R = Math.hypot(52, 52);
+let CAM_H = 46;
 let camYawIdx = 0, camYawCur = Math.PI / 4;
+const VIEWS = [
+  { name: 'CLASSIC', h: 46, view: 24 },
+  { name: 'LOW', h: 30, view: 20 },
+  { name: 'HIGH', h: 72, view: 30 },
+];
+let viewIdx = 0, viewBase = 24;
+function cycleView() {
+  viewIdx = (viewIdx + 1) % VIEWS.length;
+  CAM_H = VIEWS[viewIdx].h;
+  viewBase = VIEWS[viewIdx].view;
+  if (state !== 'home') flash('View: ' + VIEWS[viewIdx].name, 1.2);
+}
 function rotateCam(dir) { camYawIdx += dir; }
 function camOffset() {
   return new THREE.Vector3(Math.cos(camYawCur) * CAM_R, CAM_H, Math.sin(camYawCur) * CAM_R);
@@ -736,6 +749,30 @@ for (let ms = 200; ms < R.len - 40; ms += 200) {
   scene.add(flag);
 }
 
+// painted start line + checkered finish band on the road
+(function roadBands() {
+  const st = routeAt(3);
+  const startBand = new THREE.Mesh(new THREE.PlaneGeometry(13.5, 1.2),
+    new THREE.MeshBasicMaterial({ color: 0xf6efdd, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+  startBand.rotation.x = -Math.PI / 2;
+  startBand.rotation.z = -Math.atan2(st.tz, st.tx) + Math.PI / 2;
+  startBand.position.set(st.x, groundHeight(st.x, st.z) + 0.16, st.z);
+  scene.add(startBand);
+  const fin = routeAt(R.len - 6);
+  for (let i = 0; i < 8; i++) {
+    for (let jj = 0; jj < 2; jj++) {
+      const lat = -7 + i * 1.75 + 0.875;
+      const sq = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 0.7),
+        new THREE.MeshBasicMaterial({ color: (i + jj) % 2 ? 0x46311f : 0xf6efdd, side: THREE.DoubleSide }));
+      sq.rotation.x = -Math.PI / 2;
+      sq.rotation.z = -Math.atan2(fin.tz, fin.tx) + Math.PI / 2;
+      const fs = routeAt(R.len - 6 + jj * 0.7);
+      sq.position.set(fs.x + fs.nx * lat, groundHeight(fs.x, fs.z) + 0.16, fs.z + fs.nz * lat);
+      scene.add(sq);
+    }
+  }
+})();
+
 // drifting storybook clouds
 const clouds = [];
 for (let i = 0; i < 7; i++) {
@@ -859,6 +896,289 @@ function updateDust(dt) {
   }
 })();
 
+// ---------------------------------------------------------------- landmarks & life (round 2 dressing)
+function cottage(x, z, rotY, scale = 1, wallCol = 0xe8dcc0, roofCol = 0xb5502a) {
+  const g = new THREE.Group();
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(5 * scale, 3 * scale, 4 * scale),
+    new THREE.MeshLambertMaterial({ color: wallCol }));
+  walls.position.y = 1.5 * scale; walls.castShadow = true; g.add(walls);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 3.4 * scale, 2.4 * scale, 4, 1),
+    new THREE.MeshLambertMaterial({ color: roofCol }));
+  roof.position.y = (3 + 1.2) * scale; roof.rotation.y = Math.PI / 4; roof.scale.z = 0.75;
+  roof.castShadow = true; g.add(roof);
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.6 * scale, 1.6 * scale, 0.6 * scale),
+    new THREE.MeshLambertMaterial({ color: 0xa79c82 }));
+  chimney.position.set(1.4 * scale, 4.0 * scale, 0.8 * scale); g.add(chimney);
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(0.9 * scale, 1.7 * scale),
+    new THREE.MeshLambertMaterial({ color: 0x5c3f22 }));
+  door.position.set(0, 0.85 * scale, 2.01 * scale); g.add(door);
+  g.position.set(x, groundHeight(x, z), z);
+  g.rotation.y = rotY;
+  scene.add(g);
+  // world-space chimney mouth for smoke
+  const cm = new THREE.Vector3(1.4 * scale, 4.8 * scale, 0.8 * scale).applyAxisAngle(UP, rotY);
+  return { x: x + cm.x, y: groundHeight(x, z) + cm.y, z: z + cm.z };
+}
+const smokeSources = [];
+
+// farmstead near the start
+(function farmstead() {
+  const p = routeAt(70);
+  const fx = p.x + p.nx * 38, fz = p.z + p.nz * 38;
+  smokeSources.push(cottage(fx, fz, 0.6));
+  // barn
+  const bg = new THREE.Group();
+  const barn = new THREE.Mesh(new THREE.BoxGeometry(9, 4.5, 6),
+    new THREE.MeshLambertMaterial({ color: 0x9a4f28 }));
+  barn.position.y = 2.25; barn.castShadow = true; bg.add(barn);
+  const broof = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 7.2, 3.2, 4, 1),
+    new THREE.MeshLambertMaterial({ color: 0x6e4c2a }));
+  broof.position.y = 6.1; broof.rotation.y = Math.PI / 4; broof.scale.z = 0.62; bg.add(broof);
+  bg.position.set(fx + 12, groundHeight(fx + 12, fz + 4), fz + 4);
+  bg.rotation.y = 0.4;
+  scene.add(bg);
+  // sheep in the yard
+  for (let i = 0; i < 8; i++) {
+    const sx = fx + 4 + worldRng() * 14, sz = fz - 12 + worldRng() * 9;
+    const sheep = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 7, 5),
+      new THREE.MeshLambertMaterial({ color: 0xf2ead4 }));
+    body.scale.set(1.25, 0.9, 0.9); body.position.y = 0.62; body.castShadow = true; sheep.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5),
+      new THREE.MeshLambertMaterial({ color: 0x46311f }));
+    head.position.set(0.62, 0.62, 0); sheep.add(head);
+    sheep.position.set(sx, groundHeight(sx, sz), sz);
+    sheep.rotation.y = worldRng() * 6.3;
+    scene.add(sheep);
+  }
+})();
+
+// windmill on the hill crest — the course landmark
+let windmillSails = null;
+(function windmill() {
+  const p = routeAt(400);
+  const wx = p.x + p.nx * -35, wz = p.z + p.nz * -35;
+  const g = new THREE.Group();
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.2, 11, 9),
+    new THREE.MeshLambertMaterial({ color: 0xe0d4b8 }));
+  tower.position.y = 5.5; tower.castShadow = true; g.add(tower);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(2.5, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.5),
+    new THREE.MeshLambertMaterial({ color: 0xb5502a }));
+  cap.position.y = 11; g.add(cap);
+  const sails = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    const sail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 7.5, 0.12),
+      new THREE.MeshLambertMaterial({ color: 0x8a6a42 }));
+    sail.position.y = 3.4;
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 5.4),
+      new THREE.MeshLambertMaterial({ color: 0xf2ead4, side: THREE.DoubleSide }));
+    cloth.position.set(0.85, 3.8, 0);
+    const arm = new THREE.Group();
+    arm.add(sail); arm.add(cloth);
+    arm.rotation.z = i * Math.PI / 2;
+    sails.add(arm);
+  }
+  sails.position.set(0, 10.6, 2.6);
+  g.add(sails);
+  windmillSails = sails;
+  const face = -Math.atan2(p.z - wz, p.x - wx);
+  g.position.set(wx, groundHeight(wx, wz), wz);
+  g.rotation.y = face + Math.PI / 2;
+  scene.add(g);
+})();
+
+// orchard rows along the far meadow
+for (let os = 590; os <= 665; os += 15) {
+  for (const lat of [16, 22]) {
+    const p = routeAt(os);
+    const x = p.x + p.nx * lat, z = p.z + p.nz * lat;
+    const g = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 1.6, 6),
+      new THREE.MeshLambertMaterial({ color: 0x7a5230 }));
+    trunk.position.y = 0.8; g.add(trunk);
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(1.4, 8, 6),
+      new THREE.MeshLambertMaterial({ color: 0x889a3f }));
+    crown.position.y = 2.4; crown.scale.y = 0.85; crown.castShadow = true; g.add(crown);
+    for (let a = 0; a < 4; a++) {
+      const apple = new THREE.Mesh(new THREE.SphereGeometry(0.12, 5, 4),
+        new THREE.MeshBasicMaterial({ color: 0xc25a4a }));
+      apple.position.set(Math.cos(a * 1.7) * 1.1, 2.2 + Math.sin(a * 2.3) * 0.7, Math.sin(a * 1.7) * 1.1);
+      g.add(apple);
+    }
+    g.position.set(x, groundHeight(x, z), z);
+    scene.add(g);
+  }
+}
+
+// standing stones off the climb
+(function stones() {
+  const p = routeAt(452);
+  const cx = p.x + p.nx * -32, cz = p.z + p.nz * -32;
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2;
+    const sx = cx + Math.cos(a) * 8, sz = cz + Math.sin(a) * 8;
+    const h = 2 + worldRng() * 1.6;
+    const stone = new THREE.Mesh(new THREE.BoxGeometry(1.1, h, 0.7),
+      new THREE.MeshLambertMaterial({ color: 0x9a9484 }));
+    stone.position.set(sx, groundHeight(sx, sz) + h / 2 - 0.2, sz);
+    stone.rotation.y = a + worldRng() * 0.5;
+    stone.rotation.z = (worldRng() - 0.5) * 0.15;
+    stone.castShadow = true;
+    scene.add(stone);
+  }
+})();
+
+// a village around the sanctuary
+(function village() {
+  const p = routeAt(R.len - 14);
+  smokeSources.push(cottage(p.x + p.nx * -14, p.z + p.nz * -14, 1.2, 0.9));
+  smokeSources.push(cottage(p.x + p.nx * 15, p.z + p.nz * 20, -0.4, 1.05, 0xdccdb0));
+  cottage(p.x + p.nx * -18, p.z + p.nz * 8, 2.4, 0.8, 0xe0d0b8, 0x8a6a42);
+})();
+
+// hedgerow stretches outside the fences
+for (const [h0, h1] of [[100, 160], [565, 620]]) {
+  for (let hs = h0; hs <= h1; hs += 4) {
+    for (const side of [-1, 1]) {
+      const p = routeAt(hs);
+      const x = p.x + p.nx * 12.6 * side, z = p.z + p.nz * 12.6 * side;
+      const hedge = new THREE.Mesh(new THREE.SphereGeometry(1.5, 6, 5),
+        new THREE.MeshLambertMaterial({ color: (hs + side) % 3 ? 0x6f8c3e : 0x7d9a45 }));
+      hedge.scale.set(1.5, 0.75, 1.0);
+      hedge.position.set(x, groundHeight(x, z) + 0.6, z);
+      scene.add(hedge);
+    }
+  }
+}
+
+// denser trackside planting — close objects flicking past are the speed read
+(function tracksideTrees() {
+  const canopyCols = [0xc96f2f, 0xd98f35, 0xb8552e, 0x889a3f, 0xd9a13b];
+  let placed = 0, guard = 0;
+  while (placed < 90 && guard++ < 3000) {
+    const s = worldRng() * (R.len - 60) + 20;
+    const side = worldRng() < 0.5 ? -1 : 1;
+    const off = 12.5 + worldRng() * 13;
+    const p = routeAt(s);
+    const x = p.x + p.nx * off * side, z = p.z + p.nz * off * side;
+    if (x < 0 || z < 0 || x > 840 || z > 740) continue;
+    if (distToRoute(x, z) < 11.5 || brookCarve(x, z) > 0.2) continue;
+    const g = new THREE.Group();
+    const sc = 0.7 + worldRng() * 0.7;
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5230 });
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * sc, 0.45 * sc, 2.4 * sc, 6), trunkMat);
+    trunk.position.y = 1.2 * sc; trunk.castShadow = true; g.add(trunk);
+    const mats = [trunkMat];
+    const cc = canopyCols[Math.floor(worldRng() * canopyCols.length)];
+    for (let b = 0; b < 2; b++) {
+      const cm2 = new THREE.MeshLambertMaterial({ color: cc });
+      const blob = new THREE.Mesh(new THREE.SphereGeometry((1.5 - b * 0.4) * sc, 7, 5), cm2);
+      blob.position.set((worldRng() - 0.5) * 0.6 * sc, (2.2 + b * 1.0) * sc, (worldRng() - 0.5) * 0.6 * sc);
+      blob.castShadow = true;
+      g.add(blob); mats.push(cm2);
+    }
+    g.position.set(x, groundHeight(x, z), z);
+    scene.add(g);
+    trees.push({ x, z, r: 1.0 * sc, group: g, mats, fade: 1 });
+    placed++;
+  }
+})();
+
+// bird flocks circling
+const flocks = [];
+for (const [bx, bz] of [[350, 250], [620, 520]]) {
+  const fg = new THREE.Group();
+  const birds = [];
+  for (let i = 0; i < 5; i++) {
+    const bird = new THREE.Group();
+    for (const wz of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.35),
+        new THREE.MeshBasicMaterial({ color: 0x46311f, side: THREE.DoubleSide }));
+      wing.position.z = wz * 0.42;
+      wing.rotation.x = wz * 0.4;
+      bird.add(wing);
+    }
+    bird.position.set((i - 2) * 2.2, (i % 2) * 0.8, Math.abs(i - 2) * 1.4);
+    fg.add(bird); birds.push(bird);
+  }
+  scene.add(fg);
+  flocks.push({ fg, birds, cx: bx, cz: bz, r: 55 + worldRng() * 25, a: worldRng() * 6, y: 38 + worldRng() * 8, spd: 0.14 + worldRng() * 0.06 });
+}
+
+// chimney smoke pool
+const smokePool = [];
+for (let i = 0; i < 18; i++) {
+  const p = new THREE.Mesh(new THREE.SphereGeometry(0.4, 5, 4),
+    new THREE.MeshLambertMaterial({ color: 0xcfc8bc, transparent: true, opacity: 0 }));
+  p.visible = false;
+  scene.add(p);
+  smokePool.push({ mesh: p, life: 0 });
+}
+let smokeIdx = 0, smokeTimer = 0;
+function updateAmbient(dt, t) {
+  if (windmillSails) windmillSails.rotation.z += dt * 0.6;
+  for (const f of flocks) {
+    f.a += dt * f.spd;
+    f.fg.position.set(f.cx + Math.cos(f.a) * f.r, f.y, f.cz + Math.sin(f.a) * f.r * 0.7);
+    f.fg.rotation.y = -f.a - Math.PI / 2;
+    for (let i = 0; i < f.birds.length; i++) {
+      const flap = Math.sin(t * 7 + i * 1.3) * 0.5;
+      f.birds[i].children[0].rotation.x = -0.4 - flap;
+      f.birds[i].children[1].rotation.x = 0.4 + flap;
+    }
+  }
+  smokeTimer -= dt;
+  if (smokeTimer <= 0 && smokeSources.length) {
+    smokeTimer = 0.55;
+    const src = smokeSources[Math.floor(Math.random() * smokeSources.length)];
+    const sp = smokePool[smokeIdx++ % smokePool.length];
+    sp.mesh.visible = true;
+    sp.mesh.position.set(src.x, src.y, src.z);
+    sp.life = 3.2;
+  }
+  for (const sp of smokePool) {
+    if (sp.life <= 0) continue;
+    sp.life -= dt;
+    if (sp.life <= 0) { sp.mesh.visible = false; continue; }
+    sp.mesh.position.y += dt * 1.1;
+    sp.mesh.position.x += dt * 0.5;
+    sp.mesh.material.opacity = Math.min(0.5, sp.life * 0.22);
+    const k = 1 + (3.2 - sp.life) * 0.5;
+    sp.mesh.scale.set(k, k, k);
+  }
+}
+
+// wind streaks past the player at gallop
+const windPool = [];
+for (let i = 0; i < 14; i++) {
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.09),
+    new THREE.MeshBasicMaterial({ color: 0xfff8ea, transparent: true, opacity: 0, side: THREE.DoubleSide }));
+  p.visible = false;
+  scene.add(p);
+  windPool.push({ mesh: p, life: 0, vx: 0, vz: 0 });
+}
+let windIdx = 0;
+function spawnWind(px, py, pz, heading, speed) {
+  const w = windPool[windIdx++ % windPool.length];
+  w.mesh.visible = true;
+  const ox = (Math.random() - 0.5) * 16, oz = (Math.random() - 0.5) * 16;
+  w.mesh.position.set(px + ox + Math.cos(heading) * 10, py + 0.6 + Math.random() * 2.2, pz + oz + Math.sin(heading) * 10);
+  w.mesh.rotation.y = -heading;
+  w.vx = -Math.cos(heading) * speed * 2.4;
+  w.vz = -Math.sin(heading) * speed * 2.4;
+  w.life = 0.5;
+}
+function updateWind(dt) {
+  for (const w of windPool) {
+    if (w.life <= 0) continue;
+    w.life -= dt;
+    if (w.life <= 0) { w.mesh.visible = false; continue; }
+    w.mesh.position.x += w.vx * dt;
+    w.mesh.position.z += w.vz * dt;
+    w.mesh.material.opacity = Math.min(0.4, w.life * 1.2);
+  }
+}
+
 // ---------------------------------------------------------------- horse factory
 function makeHorse(coat, riderCol) {
   const g = new THREE.Group();
@@ -905,40 +1225,52 @@ function makeHorse(coat, riderCol) {
     new THREE.MeshBasicMaterial({ color: 0x2a1d10, transparent: true, opacity: 0.3, depthWrite: false }));
   blob.rotation.x = -Math.PI / 2;
   scene.add(blob);
+  // floating rider marker (hidden for the player)
+  const marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.32),
+    new THREE.MeshBasicMaterial({ color: riderCol }));
+  marker.position.y = 4.4;
+  g.add(marker);
   scene.add(g);
-  return { group: g, legs, cape, blob, body };
+  return { group: g, legs, cape, blob, body, marker };
 }
 
 // ---------------------------------------------------------------- racers
-const GAIT_NAMES = ['WALK', 'TROT', 'CANTER', 'GALLOP'];
-const GAIT_SPEED = [1.8, 4.6, 7.4, 10.6];
-const GAIT_TURN = [2.8, 2.3, 1.55, 0.9];
-const GAIT_STAM = [7, 4, 0, -6];   // per second; positive = recover. Canter is the sustainable cruise.
+// three tiers: TROT recovers, CANTER cruises, GALLOP spends
+const GAIT_NAMES = ['TROT', 'CANTER', 'GALLOP'];
+const GAIT_SPEED = [4.6, 7.4, 10.6];
+const GAIT_TURN = [2.3, 1.55, 0.9];
+const GAIT_STAM = [4.5, 0, -6];   // per second; positive = recover. Canter is the sustainable cruise.
 
 function makeRacer(name, coat, riderCol, lateral, isPlayer, skill) {
   const st = routeAt(0);
+  const vis = makeHorse(coat, riderCol);
+  if (isPlayer) vis.marker.visible = false;
   return {
     name, isPlayer, skill, lateralHome: lateral, riderCol,
     paceMul: isPlayer ? 1 : 0.965 + skill * 0.05,
     x: st.x + st.nx * lateral, z: st.z + st.nz * lateral,
     heading: Math.atan2(st.tz, st.tx),
-    speed: 0, gait: 1, stamina: 100,
+    speed: 0, gait: 0, stamina: 100,
     s: 0, si: 0, lateral,
     air: 0, airT: 0, stumble: 0, blownLock: 0, shiftCd: 0,
     alive: true, finished: false, finishTime: 0,
-    liftY: 0, wasInBand: false,
-    vis: makeHorse(coat, riderCol), animPhase: Math.random() * 6,
+    liftY: 0, wasInBand: false, overBand: false, boost: 0,
+    vis, animPhase: Math.random() * 6,
   };
 }
 
 let racers = [];
+const DIFF_OFFSET = { easy: -0.18, fair: 0, hard: 0.14 };
+let difficulty = 'fair';
 function spawnField() {
   for (const r of racers) { scene.remove(r.vis.group); scene.remove(r.vis.blob); }
+  const off = DIFF_OFFSET[difficulty] || 0;
+  const sk = (base) => Math.min(1.2, Math.max(0.3, base + off));
   racers = [
     makeRacer('You', 0x8a5a2e, 0xb5502a, 0, true, 1),
-    makeRacer('Marrow', 0x6e6e78, 0x4e6b8a, -4.5, false, 0.9),
-    makeRacer('Bracken', 0x9a4f28, 0x6b7d3a, 4.5, false, 0.75),
-    makeRacer('Dove', 0xe8e2d4, 0x8a5a7a, -9, false, 0.68),
+    makeRacer('Marrow', 0x6e6e78, 0x4e6b8a, -4.5, false, sk(0.9)),
+    makeRacer('Bracken', 0x9a4f28, 0x6b7d3a, 4.5, false, sk(0.75)),
+    makeRacer('Dove', 0xe8e2d4, 0x8a5a7a, -9, false, sk(0.68)),
   ];
 }
 
@@ -972,7 +1304,7 @@ function stepRacer(r, c, dt, world) {
 
   // gait shifting (discrete, small cooldown so it steps not slides)
   if (r.shiftCd > 0) r.shiftCd -= dt;
-  const gaitMax = (r.blownLock > 0) ? 1 : 3;
+  const gaitMax = (r.blownLock > 0) ? 0 : 2;
   if (c.gaitUp && r.shiftCd <= 0 && r.gait < gaitMax) { r.gait++; r.shiftCd = 0.3; }
   if (c.gaitDown && r.shiftCd <= 0 && r.gait > 0) { r.gait--; r.shiftCd = 0.18; }
   if (r.gait > gaitMax) r.gait = gaitMax;
@@ -980,12 +1312,12 @@ function stepRacer(r, c, dt, world) {
   // stamina
   const offPath = Math.abs(r.lateral) > 10;
   let stamRate = GAIT_STAM[r.gait];
-  if (r.gait === 3 && slope > 0) stamRate -= slope * 34;      // climbing at gallop is ruinous
+  if (r.gait === 2 && slope > 0) stamRate -= slope * 34;      // climbing at gallop is ruinous
   if (offPath && stamRate < 0) stamRate *= 1.25;
   if (inMud && r.speed > 1) stamRate -= 3;                    // heavy going
   r.stamina = Math.min(100, r.stamina + stamRate * dt);
   if (r.stamina <= 0 && r.blownLock <= 0) {
-    r.stamina = 0; r.blownLock = 3; r.gait = Math.min(r.gait, 1);
+    r.stamina = 0; r.blownLock = 3; r.gait = 0;
     if (r.isPlayer) world.onBlown && world.onBlown();
   }
   if (r.blownLock > 0) {
@@ -996,12 +1328,26 @@ function stepRacer(r, c, dt, world) {
   // jumping
   if (r.air > 0) {
     r.airT += dt;
-    if (r.airT >= r.air) { r.air = 0; r.liftY = 0; }
-    else {
+    // note any obstacle band passed while airborne — a clean jump earns a surge
+    for (const j of JUMPS) {
+      if (Math.abs(j.s - r.s) > 6) continue;
+      const across = (r.x - j.x) * j.tx + (r.z - j.z) * j.tz;
+      const along = (r.x - j.x) * j.nx + (r.z - j.z) * j.nz;
+      if (Math.abs(across) < j.width / 2 + 0.6 && along > j.latMin && along < j.latMax) { r.overBand = true; break; }
+    }
+    if (r.airT >= r.air) {
+      r.air = 0; r.liftY = 0;
+      if (r.overBand) {
+        r.boost = 1.15;
+        r.speed = Math.min(13, r.speed + 1.6);
+        if (r.isPlayer && world.onSurge) world.onSurge();
+      }
+      r.overBand = false;
+    } else {
       const t = r.airT / r.air;
       r.liftY = 4 * 2.2 * t * (1 - t);   // 2.2m apex arc
     }
-  } else if (c.jump && r.gait >= 2 && r.stumble <= 0) {
+  } else if (c.jump && r.gait >= 1 && r.stumble <= 0) {
     r.air = 0.75; r.airT = 0; // launch
   }
 
@@ -1036,7 +1382,8 @@ function stepRacer(r, c, dt, world) {
   if (Math.abs(r.lateral) > 55) target *= 0.5;
   if (r.stumble > 0) target *= 0.45;
   if (inMud) target *= 0.62;
-  const accel = target > r.speed ? 3.2 : 6.0;
+  if (r.boost > 0) { target = Math.max(target, 12.4); r.boost -= dt; }
+  const accel = target > r.speed ? 2.7 : 4.6;   // momentum: slower to build, slower to shed
   r.speed += Math.sign(target - r.speed) * Math.min(Math.abs(target - r.speed), accel * dt);
 
   // integrate
@@ -1103,17 +1450,17 @@ function aiControls(r, world) {
   const slope = slopeAlong(r.x, r.z, hx, hz);
   const finalStretch = (R.len - r.s) < 180;
 
-  // desired gait — a kick-and-recover racing rhythm
-  let want = 2;
+  // desired gait — a kick-and-recover racing rhythm (0 trot, 1 canter, 2 gallop)
+  let want = 1;
   const kickStam = 12 + (1 - r.skill) * 10;
   const uphill = slope > 0.04;
-  if (r.stamina < 45 && !finalStretch) want = 1;                      // rebuild for the next kick
-  if (slope < -0.045 && r.stamina > 15) want = 3;                     // downhill is cheap speed
-  if (slope < 0.02 && r.stamina > 65) want = 3;                       // spend surplus on the flat
-  if (finalStretch && r.stamina > kickStam) want = 3;
-  if (uphill && want === 3 && !finalStretch) want = 2;   // never gallop a climb — it's ruinous
-  if (r.stamina < 16 + (1 - r.skill) * 8) want = Math.min(want, 1);
-  if (r.blownLock > 0) want = 1;
+  if (r.stamina < 45 && !finalStretch) want = 0;                      // rebuild for the next kick
+  if (slope < -0.045 && r.stamina > 15) want = 2;                     // downhill is cheap speed
+  if (slope < 0.02 && r.stamina > 65) want = 2;                       // spend surplus on the flat
+  if (finalStretch && r.stamina > kickStam) want = 2;
+  if (uphill && want === 2 && !finalStretch) want = 1;   // never gallop a climb — it's ruinous
+  if (r.stamina < 16 + (1 - r.skill) * 8) want = Math.min(want, 0);
+  if (r.blownLock > 0) want = 0;
   // don't gallop into the two hard bends unless skilled
   if (r.gait !== want) { if (want > r.gait) c.gaitUp = true; else c.gaitDown = true; }
 
@@ -1144,7 +1491,7 @@ function aiControls(r, world) {
       if (world.rng() > (1 - r.skill) * 0.15) c.jump = true;
       // a failed roll: just doesn't jump this frame — may still catch next frame or stumble
     }
-    if (j.s - r.s < 26 && r.gait < 2 && r.blownLock <= 0) { c.gaitUp = true; }
+    if (j.s - r.s < 26 && r.gait < 1 && r.blownLock <= 0) { c.gaitUp = true; }
   }
   return c;
 }
@@ -1216,18 +1563,20 @@ function updateDeerVisuals(dt) {
 // ---------------------------------------------------------------- input & keybinds
 const keys = {};
 const DEFAULT_KEYS = {
-  gaitUp: 'KeyW', gaitDown: 'KeyS', left: 'KeyA', right: 'KeyD',
-  jump: 'Space', camL: 'KeyQ', camR: 'KeyE', pause: 'Escape',
+  up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD',
+  gaitUp: 'ShiftLeft', gaitDown: 'KeyX',
+  jump: 'Space', camL: 'KeyQ', camR: 'KeyE', view: 'KeyV', pause: 'Escape',
 };
 // arrows (and P for pause) always work as a fallback
 const FALLBACK_KEYS = { gaitUp: 'ArrowUp', gaitDown: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', pause: 'KeyP' };
 const ACTION_LABELS = {
-  gaitUp: 'Gait up', gaitDown: 'Gait down', left: 'Steer left', right: 'Steer right',
-  jump: 'Jump', camL: 'Rotate camera ⟲', camR: 'Rotate camera ⟳', pause: 'Pause',
+  up: 'Ride up-screen', down: 'Ride down-screen', left: 'Ride left', right: 'Ride right',
+  gaitUp: 'Speed up', gaitDown: 'Slow down',
+  jump: 'Jump', camL: 'Rotate camera ⟲', camR: 'Rotate camera ⟳', view: 'Camera view', pause: 'Pause',
 };
 let KEYS = { ...DEFAULT_KEYS };
-try { Object.assign(KEYS, JSON.parse(localStorage.getItem('tantivy.keys') || '{}')); } catch (e) { /* fresh */ }
-function saveKeys() { try { localStorage.setItem('tantivy.keys', JSON.stringify(KEYS)); } catch (e) {} }
+try { Object.assign(KEYS, JSON.parse(localStorage.getItem('tantivy.keys2') || '{}')); } catch (e) { /* fresh */ }
+function saveKeys() { try { localStorage.setItem('tantivy.keys2', JSON.stringify(KEYS)); } catch (e) {} }
 function isDown(a) { return !!(keys[KEYS[a]] || (FALLBACK_KEYS[a] && keys[FALLBACK_KEYS[a]])); }
 function keyName(code) {
   if (!code) return '—';
@@ -1260,19 +1609,47 @@ addEventListener('keydown', (e) => {
   if (paused) return;
   if (e.code === KEYS.camL) rotateCam(1);
   if (e.code === KEYS.camR) rotateCam(-1);
+  if (e.code === KEYS.view) cycleView();
+  if (e.code === 'Digit1') tierReq = 0;
+  if (e.code === 'Digit2') tierReq = 1;
+  if (e.code === 'Digit3') tierReq = 2;
   if (e.code === 'KeyR' && state !== 'home') restart();
   if (e.code === 'Enter' && state === 'home') beginRace();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 let prevUp = false, prevDown = false, prevJump = false;
+let tierReq = null;   // 1/2/3 direct tier request
 function readPlayerControls() {
   const up = isDown('gaitUp'), down = isDown('gaitDown'), jump = isDown('jump');
+  const p = racers[0];
   const c = {
-    steer: (isDown('left') ? -1 : 0) + (isDown('right') ? 1 : 0),
+    steer: 0,
     gaitUp: up && !prevUp, gaitDown: down && !prevDown, jump: jump && !prevJump,
   };
   prevUp = up; prevDown = down; prevJump = jump;
+  // direct tier select (1/2/3): keep nudging until the horse is there
+  if (tierReq !== null && p) {
+    if (p.gait < tierReq) c.gaitUp = true;
+    else if (p.gait > tierReq) c.gaitDown = true;
+    else tierReq = null;
+  }
+  // WASD rides camera-relative; arrow left/right stay plain steering
+  const ix = (keys[KEYS.right] ? 1 : 0) - (keys[KEYS.left] ? 1 : 0);
+  const iy = (keys[KEYS.up] ? 1 : 0) - (keys[KEYS.down] ? 1 : 0);
+  const arrowSteer = (keys.ArrowLeft ? -1 : 0) + (keys.ArrowRight ? 1 : 0);
+  if (arrowSteer !== 0) {
+    c.steer = arrowSteer;
+  } else if ((ix !== 0 || iy !== 0) && p) {
+    // screen up = camera forward (ground-projected); screen right = its perpendicular
+    const fx = -Math.cos(camYawCur), fz = -Math.sin(camYawCur);
+    const rx = -fz, rz = fx;
+    const dx = fx * iy + rx * ix, dz = fz * iy + rz * ix;
+    let dh = Math.atan2(dz, dx) - p.heading;
+    while (dh > Math.PI) dh -= 2 * Math.PI;
+    while (dh < -Math.PI) dh += 2 * Math.PI;
+    c.steer = Math.min(1, Math.max(-1, dh * 2.4));
+  }
   return c;
 }
 
@@ -1330,6 +1707,33 @@ function noiseBurst(dur, freq, vol) {
 function sfxHoof(gait) { noiseBurst(0.08, 220 + gait * 70, 0.2 + gait * 0.07); }
 function sfxThud() { noiseBurst(0.25, 140, 0.55); tone(75, 0.3, 0.35, 'sine'); }
 function sfxJump() { tone(300, 0.25, 0.14, 'sine', 260); }
+function sfxSurge() {
+  tone(520, 0.18, 0.12, 'sine', 340);
+  setTimeout(() => tone(780, 0.15, 0.1, 'sine', 260), 80);
+}
+function sfxTick() { tone(330, 0.12, 0.16, 'square'); }
+function sfxBlip(up) {
+  if (up) { tone(520, 0.1, 0.12, 'sine'); setTimeout(() => tone(660, 0.12, 0.12, 'sine'), 70); }
+  else { tone(330, 0.1, 0.1, 'sine'); setTimeout(() => tone(262, 0.12, 0.1, 'sine'), 70); }
+}
+// gallop wind: a loop whose volume follows the player's speed
+let windGainNode = null;
+function ensureWindLoop() {
+  if (!AC || windGainNode) return;
+  const len = AC.sampleRate;
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  const f = AC.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = 700; f.Q.value = 0.6;
+  windGainNode = AC.createGain();
+  windGainNode.gain.value = 0;
+  src.connect(f); f.connect(windGainNode); windGainNode.connect(masterGain);
+  src.start();
+}
+function setWindLevel(v) { if (windGainNode) windGainNode.gain.value = v; }
 function sfxLand(sp) { noiseBurst(0.12, 300, Math.min(0.45, sp / 25)); }
 function sfxHorn(n = 1) {
   if (!AC || !soundOn) return;
@@ -1349,6 +1753,35 @@ function sfxBells() {
     }, i * 420);
   }
 }
+// music — Kevin MacLeod (incompetech.com), CC-BY 4.0; credited in settings + README
+let musicOn = localStorage.getItem('tantivy.music') !== 'off';
+const menuMusic = new Audio('music/menu.mp3');
+const raceMusic = new Audio('music/race.mp3');
+menuMusic.loop = raceMusic.loop = true;
+menuMusic.volume = 0.28;
+raceMusic.volume = 0.33;
+let musicUnlocked = false;
+function playMusic(which) {
+  if (!musicOn || !musicUnlocked) return;
+  const target = which === 'race' ? raceMusic : menuMusic;
+  const other = which === 'race' ? menuMusic : raceMusic;
+  other.pause();
+  if (target.paused) { target.play().catch(() => {}); }
+}
+function stopMusic() { menuMusic.pause(); raceMusic.pause(); }
+function setMusic(on) {
+  musicOn = on;
+  try { localStorage.setItem('tantivy.music', on ? 'on' : 'off'); } catch (e) {}
+  if (!on) stopMusic();
+  else playMusic(state === 'run' || state === 'count' || state === 'tut' ? 'race' : 'menu');
+}
+addEventListener('pointerdown', () => {
+  if (!musicUnlocked) {
+    musicUnlocked = true;
+    if (state === 'home') playMusic('menu');
+  }
+});
+
 function startAmbient() {
   // soft wind loop + occasional bird chirps
   const len = AC.sampleRate * 2;
@@ -1363,6 +1796,7 @@ function startAmbient() {
   g.gain.value = 0.028;
   src.connect(f); f.connect(g); g.connect(masterGain);
   src.start();
+  ensureWindLoop();
   (function chirp() {
     setTimeout(() => {
       if (AC && soundOn) {
@@ -1378,22 +1812,53 @@ function startAmbient() {
 // ---------------------------------------------------------------- HUD
 const el = (id) => document.getElementById(id);
 const hud = el('hud'), placard = el('placard'), gaitname = el('gaitname'),
-  stambar = el('stambar'), blownEl = el('blown'), racetrack = el('racetrack'),
+  stambar = el('stambar'), blownEl = el('blown'),
   msgEl = el('msg'), bigmsg = el('bigmsg');
-function buildRaceDots() {
-  racetrack.innerHTML = '';
+// minimap: the whole route, hazard ticks, and live rider dots
+const mmap = el('minimap'), mctx = mmap.getContext('2d');
+const MM = (() => {
+  let minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9;
+  for (const p of R.pts) {
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+    minZ = Math.min(minZ, p[1]); maxZ = Math.max(maxZ, p[1]);
+  }
+  const pad = 12, w = 240 - pad * 2, h = 150 - pad * 2;
+  const sc = Math.min(w / (maxX - minX), h / (maxZ - minZ));
+  const ox = pad + (w - (maxX - minX) * sc) / 2, oy = pad + (h - (maxZ - minZ) * sc) / 2;
+  return { x: (x) => ox + (x - minX) * sc, y: (z) => oy + (z - minZ) * sc };
+})();
+function mmTick(s, color) {
+  const p = routeAt(s);
+  mctx.beginPath();
+  mctx.moveTo(MM.x(p.x - p.nx * 7), MM.y(p.z - p.nz * 7));
+  mctx.lineTo(MM.x(p.x + p.nx * 7), MM.y(p.z + p.nz * 7));
+  mctx.strokeStyle = color; mctx.lineWidth = 2.5; mctx.stroke();
+}
+function drawMinimap() {
+  mctx.clearRect(0, 0, 240, 150);
+  mctx.beginPath();
+  for (let i = 0; i < R.pts.length; i += 2) {
+    const X = MM.x(R.pts[i][0]), Y = MM.y(R.pts[i][1]);
+    if (i) mctx.lineTo(X, Y); else mctx.moveTo(X, Y);
+  }
+  mctx.strokeStyle = '#c49a63'; mctx.lineWidth = 5; mctx.lineCap = 'round'; mctx.stroke();
+  for (const b of BROOKS) if (b.s < R.len - 30) mmTick(b.s, '#5f96c2');
+  for (const g of GATES) mmTick(g.s, '#d9a13b');
+  const f = routeAt(R.len - 4);
+  mctx.fillStyle = '#b5502a';
+  mctx.beginPath(); mctx.arc(MM.x(f.x), MM.y(f.z), 4, 0, 7); mctx.fill();
   for (const r of racers) {
-    const d = document.createElement('div');
-    d.className = 'rdot' + (r.isPlayer ? ' you' : '');
-    d.style.background = '#' + r.riderCol.toString(16).padStart(6, '0');
-    d.style.left = '0%';
-    r.dot = d;
-    racetrack.appendChild(d);
+    mctx.beginPath();
+    mctx.arc(MM.x(r.x), MM.y(r.z), r.isPlayer ? 4.5 : 3, 0, 7);
+    mctx.fillStyle = '#' + r.riderCol.toString(16).padStart(6, '0');
+    mctx.fill();
+    mctx.lineWidth = 1.4; mctx.strokeStyle = '#46311f'; mctx.stroke();
   }
 }
 function updateGaitHint() {
   el('gaithint').innerHTML =
-    `<kbd>${keyName(KEYS.gaitUp)}</kbd> faster · <kbd>${keyName(KEYS.gaitDown)}</kbd> slower · <kbd>${keyName(KEYS.jump)}</kbd> jump`;
+    `<kbd>${keyName(KEYS.gaitUp)}</kbd> faster · <kbd>${keyName(KEYS.gaitDown)}</kbd> slower · ` +
+    `<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> direct · <kbd>${keyName(KEYS.jump)}</kbd> jump`;
 }
 const pips = [...document.querySelectorAll('.pip')];
 let msgTimer = 0;
@@ -1410,6 +1875,12 @@ function updateHUD(world) {
     if (r === p) continue;
     if ((r.finished ? R.len + 1000 - r.finishTime : r.s) > (p.finished ? R.len + 1000 - p.finishTime : p.s)) pos++;
   }
+  if (world.lastPos !== undefined && pos !== world.lastPos && state === 'run' && world.time > 4) {
+    placard.classList.remove('bump'); void placard.offsetWidth; placard.classList.add('bump');
+    sfxBlip(pos < world.lastPos);
+    if (pos < world.lastPos) flash('You take ' + ordinal(pos) + '!', 1.2);
+  }
+  world.lastPos = pos;
   placard.innerHTML = `<span class="pos">${ordinal(pos)}</span> &nbsp;<span class="time">${fmtTime(world.time)}</span>`;
   gaitname.textContent = GAIT_NAMES[p.gait] + (p.air > 0 ? ' — AIRBORNE' : '');
   pips.forEach((pip, i) => pip.classList.toggle('lit', i <= p.gait));
@@ -1417,9 +1888,7 @@ function updateHUD(world) {
   stambar.className = p.stamina < 20 ? 'crit' : (p.stamina < 45 ? 'low' : '');
   stambar.id = 'stambar';
   blownEl.textContent = p.blownLock > 0 && p.stamina < 25 ? 'BLOWN — the horse needs breath' : '';
-  for (const r of racers) {
-    if (r.dot) r.dot.style.left = Math.min(100, Math.max(0, (r.s / R.len) * 100)) + '%';
-  }
+  drawMinimap();
   if (msgTimer > 0) { msgTimer -= world.dt; if (msgTimer <= 0) msgEl.textContent = ''; }
   // jump prompt
   const j = nextJump(p.s, p.lateral);
@@ -1444,6 +1913,14 @@ function updateRacerVisual(r, dt) {
   });
   v.group.position.y += Math.abs(Math.sin(r.animPhase)) * amp * 0.35;
   v.cape.rotation.x = 0.35 + Math.min(0.9, r.speed / 12);
+  if (v.marker.visible) v.marker.rotation.y += dt * 2.2;
+  // a burst of streaks on the player's up-shift sells the gear change
+  if (r.isPlayer) {
+    if (r.prevGaitVis !== undefined && r.gait > r.prevGaitVis && r.speed > 4) {
+      for (let i = 0; i < 4; i++) spawnWind(r.x, gy, r.z, r.heading, Math.max(9, r.speed));
+    }
+    r.prevGaitVis = r.gait;
+  }
   v.blob.position.set(r.x, gy + 0.08, r.z);
   const sh = 1 - Math.min(0.6, r.liftY / 4);
   v.blob.scale.set(sh, sh, sh);
@@ -1454,6 +1931,11 @@ function updateRacerVisual(r, dt) {
       r.dustAcc = 0;
       spawnDust(r.x - Math.cos(r.heading) * 1.3, gy, r.z - Math.sin(r.heading) * 1.3, r.speed / 14);
     }
+  }
+  // wind streaks whipping past at gallop
+  if (r.isPlayer && r.speed > 8.6) {
+    r.windAcc = (r.windAcc || 0) + dt;
+    if (r.windAcc > 0.09) { r.windAcc = 0; spawnWind(r.x, gy, r.z, r.heading, r.speed); }
   }
   // player audio: hoofbeats, jump, landing
   if (r.isPlayer) {
@@ -1496,7 +1978,8 @@ const camTarget = new THREE.Vector3();
 let camInit = false;
 function updateCamera(dt) {
   const p = racers[0];
-  const lead = 7;
+  // the camera leads harder and pulls back as speed builds — the speed read
+  const lead = 5 + p.speed * 0.85;
   const tx = p.x + Math.cos(p.heading) * lead;
   const tz = p.z + Math.sin(p.heading) * lead;
   const ty = groundHeight(p.x, p.z);
@@ -1505,9 +1988,16 @@ function updateCamera(dt) {
   camTarget.x += (tx - camTarget.x) * k;
   camTarget.y += (ty - camTarget.y) * k;
   camTarget.z += (tz - camTarget.z) * k;
+  const spd = Math.min(1, p.speed / 11);
+  VIEW_H += (viewBase * (1 + spd * 0.16) - VIEW_H) * Math.min(1, dt * 2.5);
+  sizeCamera();
   const wantYaw = Math.PI / 4 + camYawIdx * Math.PI / 2;
   camYawCur += (wantYaw - camYawCur) * Math.min(1, dt * 6);
   camera.position.copy(camTarget).add(camOffset());
+  if (p.gait === 2 && p.air <= 0 && p.speed > 8) {
+    camera.position.x += (Math.random() - 0.5) * 0.22;
+    camera.position.z += (Math.random() - 0.5) * 0.22;
+  }
   camera.lookAt(camTarget);
   sun.position.set(camTarget.x - 90, 120, camTarget.z + 40);
   sun.target.position.copy(camTarget);
@@ -1520,6 +2010,7 @@ const world = {
   time: 0, dt: 0, rng: mulberry32(Date.now() & 0xffff),
   onBlown: () => { flash('BLOWN! Drop to trot and breathe', 2.5); sfxThud(); },
   onStumble: () => { flash('Stumbled!', 2); sfxThud(); },
+  onSurge: () => { flash('Clean jump — surge!', 1.4); sfxSurge(); },
 };
 let countdown = 0;
 
@@ -1534,10 +2025,13 @@ function gotoHome() {
   tut = null;
   state = 'home';
   updateHomeHint();
+  setWindLevel(0);
+  playMusic('menu');
 }
 function togglePause() {
   paused = !paused;
   el('pause').classList.toggle('on', paused);
+  if (paused) setWindLevel(0);
 }
 
 function restart() {
@@ -1552,11 +2046,11 @@ function restart() {
   state = 'count';
   countdown = 3.0;
   hud.classList.add('on');
-  buildRaceDots();
   updateGaitHint();
-  bigmsg.textContent = '3';
+  delete world.lastPos;
+  bigmsg.textContent = '';
 }
-function beginRace() { ensureAudio(); restart(); }
+function beginRace() { ensureAudio(); restart(); playMusic('race'); }
 
 // ---------------------------------------------------------------- settings UI
 function openSettings() { el('home').classList.remove('on'); el('settings').classList.add('on'); buildKeyRows(); refreshSoundBtn(); }
@@ -1581,8 +2075,8 @@ function buildKeyRows() {
 }
 function updateHomeHint() {
   el('homekeys').textContent =
-    `${keyName(KEYS.gaitUp)}/${keyName(KEYS.gaitDown)} gaits · ${keyName(KEYS.left)}/${keyName(KEYS.right)} steer · ` +
-    `${keyName(KEYS.jump)} jump · ${keyName(KEYS.camL)}/${keyName(KEYS.camR)} camera · ${keyName(KEYS.pause)} pause`;
+    `WASD ride · ${keyName(KEYS.gaitUp)}/${keyName(KEYS.gaitDown)} or 1/2/3 speed · ` +
+    `${keyName(KEYS.jump)} jump · ${keyName(KEYS.camL)}/${keyName(KEYS.camR)}/${keyName(KEYS.view)} camera · ${keyName(KEYS.pause)} pause`;
 }
 
 // ---------------------------------------------------------------- level select
@@ -1602,14 +2096,24 @@ function openLevels() {
     list.appendChild(b);
   }
 }
-function refreshSoundBtn() { el('soundbtn').textContent = 'SOUND: ' + (soundOn ? 'ON' : 'OFF'); }
+function refreshSoundBtn() {
+  el('soundbtn').textContent = 'SOUND: ' + (soundOn ? 'ON' : 'OFF');
+  el('musicbtn').textContent = 'MUSIC: ' + (musicOn ? 'ON' : 'OFF');
+}
 
+for (const btn of document.querySelectorAll('.diffbtn')) {
+  btn.addEventListener('click', () => {
+    difficulty = btn.dataset.diff;
+    document.querySelectorAll('.diffbtn').forEach((b) => b.classList.toggle('active', b === btn));
+  });
+}
 el('ridebtn').addEventListener('click', openLevels);
 el('levelback').addEventListener('click', () => { el('levels').classList.remove('on'); el('home').classList.add('on'); });
 el('tutbtn').addEventListener('click', beginTutorial);
 el('setbtn').addEventListener('click', openSettings);
 el('setback').addEventListener('click', closeSettings);
 el('soundbtn').addEventListener('click', () => { setSound(!soundOn); refreshSoundBtn(); });
+el('musicbtn').addEventListener('click', () => { setMusic(!musicOn); refreshSoundBtn(); });
 el('resetkeys').addEventListener('click', () => { KEYS = { ...DEFAULT_KEYS }; saveKeys(); buildKeyRows(); });
 el('againbtn').addEventListener('click', beginRace);
 el('resmenubtn').addEventListener('click', gotoHome);
@@ -1635,19 +2139,19 @@ function beginTutorial() {
   state = 'tut';
   tut = { stage: 0, t: 0, gallopHeld: 0 };
   hud.classList.add('on');
-  buildRaceDots();
   updateGaitHint();
+  playMusic('race');
   bigmsg.textContent = '';
-  tutMsg(`The paddock road. Shift up through the gaits: press <kbd>${keyName(KEYS.gaitUp)}</kbd> until you reach <b>CANTER</b>.`);
+  tutMsg(`The paddock road. Press <kbd>${keyName(KEYS.gaitUp)}</kbd> (or <kbd>2</kbd>) to shift up to <b>CANTER</b>.`);
 }
 function tutStep(dt) {
   const p = racers[0];
   tut.t += dt;
   switch (tut.stage) {
     case 0:
-      if (p.gait >= 2) {
+      if (p.gait >= 1) {
         tut.stage = 1;
-        tutMsg(`Steer with <kbd>${keyName(KEYS.left)}</kbd>/<kbd>${keyName(KEYS.right)}</kbd> and follow the road. The faster the gait, the wider your horse turns.`);
+        tutMsg('Ride with <kbd>WASD</kbd> and follow the road. The faster the gait, the wider your horse turns.');
       }
       break;
     case 1:
@@ -1657,7 +2161,7 @@ function tutStep(dt) {
       }
       break;
     case 2:
-      if (p.gait === 3) tut.gallopHeld += dt;
+      if (p.gait === 2) tut.gallopHeld += dt;
       if (tut.gallopHeld > 3 && p.stamina < 70) {
         tut.stage = 3;
         tutMsg(`Drop to <b>TROT</b> (<kbd>${keyName(KEYS.gaitDown)}</kbd>) and let the horse breathe. Stamina only returns at trot and walk.`);
@@ -1701,6 +2205,7 @@ function tutStep(dt) {
 
 function endRace() {
   state = 'done';
+  setWindLevel(0);
   // fast-forward the rest of the field headlessly so results are complete
   let guard = 0;
   const dt = 1 / 30;
@@ -1716,15 +2221,21 @@ function showResults() {
   const ranked = [...racers].sort((a, b) =>
     (a.finished ? a.finishTime : 1e9 - a.s) - (b.finished ? b.finishTime : 1e9 - b.s));
   const place = ranked.indexOf(p) + 1;
+  const flavor = ['A famous victory.', 'Beaten by a stride.', 'Respectable riding.', 'The field had your measure today.'][place - 1];
   el('resh').textContent = place === 1 ? 'First to the Bells!' : `${ordinal(place)} to the Bells`;
-  el('ressub').textContent = `You reached sanctuary in ${fmtTime(p.finishTime)}.`;
-  const rows = ranked.map((r, i) =>
-    `<tr><td>${i + 1}.</td><td>${r.name}${r.isPlayer ? ' ⭑' : ''}</td><td class="t">${r.finished ? fmtTime(r.finishTime) : 'on the road'}</td></tr>`
-  ).join('');
+  el('ressub').textContent = `${fmtTime(p.finishTime)} — ${flavor}`;
+  const winT = ranked[0].finished ? ranked[0].finishTime : 0;
+  const rows = ranked.map((r, i) => {
+    const t = r.finished
+      ? fmtTime(r.finishTime) + (i > 0 ? ` <span style="opacity:.55">+${(r.finishTime - winT).toFixed(1)}</span>` : '')
+      : 'on the road';
+    return `<tr><td>${i + 1}.</td><td>${r.name}${r.isPlayer ? ' ⭑' : ''}</td><td class="t">${t}</td></tr>`;
+  }).join('');
   el('restable').innerHTML = rows;
   el('results').classList.add('on');
   hud.classList.remove('on');
   sfxBells();
+  playMusic('menu');
 }
 
 // ---------------------------------------------------------------- main loop
@@ -1742,7 +2253,12 @@ function advance(dt) {
 
   if (state === 'count') {
     countdown -= dt;
-    bigmsg.textContent = String(Math.max(1, Math.ceil(countdown)));
+    const disp = String(Math.max(1, Math.ceil(countdown)));
+    if (bigmsg.textContent !== disp) {
+      bigmsg.textContent = disp;
+      bigmsg.classList.remove('pop'); void bigmsg.offsetWidth; bigmsg.classList.add('pop');
+      sfxTick();
+    }
     if (countdown <= 0) {
       state = 'run';
       bigmsg.textContent = 'RIDE!';
@@ -1762,6 +2278,7 @@ function advance(dt) {
     collideField(racers);
     stepDeer(dt);
     const p = racers[0];
+    setWindLevel(Math.max(0, Math.min(1, p.speed / 11) - 0.62) * 0.35);
     if (p.finished) endRace();
   }
 
@@ -1790,6 +2307,8 @@ function advance(dt) {
   updateClouds(dt);
   updateWater(performance.now() / 1000);
   updateCrowd();
+  updateAmbient(dt, performance.now() / 1000);
+  updateWind(dt);
   skyDome.position.copy(camTarget);
   renderer.render(scene, camera);
 }
@@ -1861,9 +2380,9 @@ function sim(n = 21, seed = 1234, trace = false) {
       paceMul: 0.965 + skill * 0.05, wasInBand: false,
       x: st.x + st.nx * lateral, z: st.z + st.nz * lateral,
       heading: Math.atan2(st.tz, st.tx),
-      speed: 0, gait: 1, stamina: 100, s: 0, si: 0, lateral,
+      speed: 0, gait: 0, stamina: 100, s: 0, si: 0, lateral,
       air: 0, airT: 0, stumble: 0, blownLock: 0, shiftCd: 0,
-      alive: true, finished: false, finishTime: 0,
+      alive: true, finished: false, finishTime: 0, overBand: false, boost: 0,
       vis: { group: { position: {}, rotation: {}, traverse: () => {} }, legs: [], cape: { rotation: {} }, blob: { position: {}, scale: {}, visible: true } },
       animPhase: 0,
     };
