@@ -22,6 +22,18 @@
   #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
   #hud.on { display: block; }
 
+  #screenvig {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 62%, rgba(46,33,24,.28) 100%);
+  }
+  #placard, #gaitbox, #racebar, #tutbox {
+    background: linear-gradient(160deg, #f9efd9, #f0e0be) !important;
+    box-shadow: 3px 3px 0 rgba(40,25,15,.35), inset 0 0 0 2px rgba(70,49,31,.12) !important;
+  }
+  .card {
+    background: linear-gradient(165deg, #f9efd9, #efdfbd) !important;
+    box-shadow: 6px 6px 0 rgba(30,20,10,.45), inset 0 0 0 3px rgba(70,49,31,.12) !important;
+  }
   #placard {
     position: absolute; top: 16px; left: 16px;
     background: var(--cream); border: 2px solid var(--ink); border-radius: 10px;
@@ -163,6 +175,7 @@
 <div id="app"></div>
 
 <div id="hud">
+  <div id="screenvig"></div>
   <div id="placard"><span class="pos">4th</span> &nbsp;<span class="time">0:00.0</span></div>
   <div id="gaitbox">
     <div id="gaitname">CANTER</div>

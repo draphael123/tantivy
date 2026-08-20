@@ -225,8 +225,8 @@ function camOffset() {
   return new THREE.Vector3(Math.cos(camYawCur) * CAM_R, CAM_H, Math.sin(camYawCur) * CAM_R);
 }
 
-const sun = new THREE.DirectionalLight(0xffe6bd, 2.1);
-sun.position.set(-90, 120, 40);
+const sun = new THREE.DirectionalLight(0xffd9a4, 2.3);
+sun.position.set(-110, 85, 30);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 10; sun.shadow.camera.far = 420;
@@ -235,7 +235,8 @@ sun.shadow.camera.left = -SB; sun.shadow.camera.right = SB;
 sun.shadow.camera.top = SB; sun.shadow.camera.bottom = -SB;
 sun.shadow.bias = -0.0015;
 scene.add(sun); scene.add(sun.target);
-scene.add(new THREE.HemisphereLight(0xfff1cf, 0x9a7c4e, 0.85));
+scene.add(new THREE.HemisphereLight(0xffeccb, 0x8a6f45, 0.8));
+renderer.toneMappingExposure = 1.12;
 
 // ---------------------------------------------------------------- terrain mesh
 let terrainMesh = null;
@@ -749,6 +750,27 @@ for (let ms = 200; ms < R.len - 40; ms += 200) {
   scene.add(flag);
 }
 
+// the TANTIVY banner cloth over the start line
+(function startBannerCloth() {
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 128;
+  const c2 = cv.getContext('2d');
+  c2.fillStyle = '#b5502a'; c2.fillRect(0, 0, 512, 128);
+  c2.fillStyle = '#d9a13b'; c2.fillRect(0, 0, 512, 12); c2.fillRect(0, 116, 512, 12);
+  c2.fillStyle = '#f7ecd4';
+  c2.font = 'bold 74px Georgia';
+  c2.textAlign = 'center'; c2.textBaseline = 'middle';
+  c2.fillText('T A N T I V Y', 256, 64);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;   // unflagged canvas textures render washed-out
+  const st = routeAt(2);
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(12.8, 2.2),
+    new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+  cloth.position.set(st.x, groundHeight(st.x, st.z) + 4.2, st.z);
+  cloth.rotation.y = Math.atan2(st.nx, st.nz) + Math.PI / 2;
+  scene.add(cloth);
+})();
+
 // painted start line + checkered finish band on the road
 (function roadBands() {
   const st = routeAt(3);
@@ -797,14 +819,30 @@ function updateClouds(dt) {
   }
 }
 
-// water shimmer: collect the brook strips for a gentle pulse
+// water shimmer + blinking sparkles on the brooks
 const waterMeshes = [];
 scene.traverse((o) => {
   if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x5f96c2) waterMeshes.push(o);
 });
+const sparkles = [];
+for (const b of BROOKS) {
+  for (let i = 0; i < 7; i++) {
+    const sp = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24),
+      new THREE.MeshBasicMaterial({ color: 0xfff8ea, transparent: true, opacity: 0, depthWrite: false }));
+    sp.rotation.x = -Math.PI / 2;
+    const along = (Math.random() - 0.5) * b.half * 1.5;
+    const across = (Math.random() - 0.5) * b.width * 0.5;
+    sp.position.set(b.x + b.nx * along + b.tx * across, groundHeight(b.x, b.z) + 0.18, b.z + b.nz * along + b.tz * across);
+    scene.add(sp);
+    sparkles.push({ mesh: sp, ph: Math.random() * 6, spd: 2 + Math.random() * 2 });
+  }
+}
 function updateWater(t) {
   for (const wmesh of waterMeshes) {
     wmesh.material.color.setHSL(0.57, 0.35, 0.55 + Math.sin(t * 1.6 + wmesh.position.x) * 0.05);
+  }
+  for (const sp of sparkles) {
+    sp.mesh.material.opacity = Math.max(0, Math.sin(t * sp.spd + sp.ph)) * 0.75;
   }
 }
 
@@ -1145,6 +1183,91 @@ function updateAmbient(dt, t) {
     sp.mesh.material.opacity = Math.min(0.5, sp.life * 0.22);
     const k = 1 + (3.2 - sp.life) * 0.5;
     sp.mesh.scale.set(k, k, k);
+  }
+}
+
+// place-anchored one-shot sounds as the player passes through the course
+let zoneCd = 0;
+function updateZoneAudio(dt, p) {
+  zoneCd -= dt;
+  if (zoneCd > 0) return;
+  if (p.s < 35 || p.s > R.len - 45) { sfxCheer(); zoneCd = 1.4 + Math.random(); }
+  else if (p.s < 150) { if (Math.random() < 0.5) sfxBaa(); zoneCd = 2.5 + Math.random() * 2; }
+  else if (p.s > 340 && p.s < 460) { sfxCreak(); zoneCd = 2.2 + Math.random(); }
+  else zoneCd = 0.5;
+}
+
+// petals at the finish + drifting autumn leaves around the rider
+const petalPool = [];
+{
+  const cols = [0xd9a13b, 0xc25a4a, 0xf7ecd4, 0xd98f9d];
+  for (let i = 0; i < 30; i++) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3),
+      new THREE.MeshBasicMaterial({ color: cols[i % cols.length], side: THREE.DoubleSide, transparent: true, opacity: 0 }));
+    p.visible = false;
+    scene.add(p);
+    petalPool.push({ mesh: p, life: 0, vx: 0, vy: 0, vz: 0, ph: Math.random() * 6 });
+  }
+}
+function spawnPetals() {
+  const fin = routeAt(R.len - 6);
+  const gy = groundHeight(fin.x, fin.z);
+  for (const pt of petalPool) {
+    pt.mesh.visible = true;
+    pt.mesh.position.set(fin.x + (Math.random() - 0.5) * 13, gy + 3 + Math.random() * 3.5, fin.z + (Math.random() - 0.5) * 13);
+    pt.life = 2.4 + Math.random() * 1.4;
+    pt.vx = (Math.random() - 0.5) * 2;
+    pt.vy = 1.2 + Math.random() * 2;
+    pt.vz = (Math.random() - 0.5) * 2;
+  }
+}
+const leafPool = [];
+{
+  const cols = [0xc96f2f, 0xd98f35, 0xb8552e, 0xd9a13b];
+  for (let i = 0; i < 16; i++) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.2),
+      new THREE.MeshBasicMaterial({ color: cols[i % cols.length], side: THREE.DoubleSide, transparent: true, opacity: 0 }));
+    p.visible = false;
+    scene.add(p);
+    leafPool.push({ mesh: p, life: 0, ph: Math.random() * 6 });
+  }
+}
+let leafIdx = 0, leafTimer = 0;
+function updatePetalsAndLeaves(dt, t) {
+  // leaves spawn gently around the player during rides
+  if (state === 'run' || state === 'tut' || state === 'count') {
+    leafTimer -= dt;
+    if (leafTimer <= 0 && racers.length) {
+      leafTimer = 0.45;
+      const p = racers[0];
+      const lf = leafPool[leafIdx++ % leafPool.length];
+      lf.mesh.visible = true;
+      lf.mesh.position.set(p.x + (Math.random() - 0.5) * 34, 8 + Math.random() * 4, p.z + (Math.random() - 0.5) * 34);
+      lf.life = 7;
+    }
+  }
+  for (const lf of leafPool) {
+    if (lf.life <= 0) continue;
+    lf.life -= dt;
+    lf.mesh.position.y -= dt * 1.25;
+    lf.mesh.position.x += Math.sin(t * 2 + lf.ph) * dt * 1.4;
+    lf.mesh.rotation.x = t * 1.6 + lf.ph;
+    lf.mesh.rotation.z = Math.sin(t * 1.3 + lf.ph);
+    const gy = groundHeight(lf.mesh.position.x, lf.mesh.position.z);
+    lf.mesh.material.opacity = Math.min(0.9, lf.life);
+    if (lf.mesh.position.y < gy + 0.1 || lf.life <= 0) { lf.life = 0; lf.mesh.visible = false; }
+  }
+  for (const pt of petalPool) {
+    if (pt.life <= 0) continue;
+    pt.life -= dt;
+    if (pt.life <= 0) { pt.mesh.visible = false; continue; }
+    pt.mesh.position.x += pt.vx * dt;
+    pt.mesh.position.y += pt.vy * dt;
+    pt.mesh.position.z += pt.vz * dt;
+    pt.vy -= dt * 2.4;
+    pt.mesh.rotation.x = t * 3 + pt.ph;
+    pt.mesh.rotation.y = t * 2 + pt.ph;
+    pt.mesh.material.opacity = Math.min(0.95, pt.life * 0.8);
   }
 }
 
@@ -1689,7 +1812,7 @@ function tone(freq, dur, vol, type = 'sine', slide = 0) {
   o.connect(g); g.connect(masterGain);
   o.start(t); o.stop(t + dur + 0.05);
 }
-function noiseBurst(dur, freq, vol) {
+function noiseBurst(dur, freq, vol, when = 0) {
   if (!AC || !soundOn) return;
   const len = Math.max(1, (dur * AC.sampleRate) | 0);
   const buf = AC.createBuffer(1, len, AC.sampleRate);
@@ -1702,9 +1825,54 @@ function noiseBurst(dur, freq, vol) {
   const g = AC.createGain();
   g.gain.value = vol;
   src.connect(f); f.connect(g); g.connect(masterGain);
-  src.start();
+  src.start(AC.currentTime + when);
 }
-function sfxHoof(gait) { noiseBurst(0.08, 220 + gait * 70, 0.2 + gait * 0.07); }
+// real gait rhythms: trot is 2-beat, canter 3-beat, gallop 4-beat
+const GAIT_PATTERN = [[0, 0.5], [0, 0.24, 0.44], [0, 0.13, 0.26, 0.38]];
+function sfxHoof(gait, strideT, surface) {
+  if (!AC || !soundOn) return;
+  const base = surface === 'mud' ? 150 : surface === 'dirt' ? 320 : 240;
+  const vol = (surface === 'mud' ? 0.3 : 0.17) + gait * 0.05;
+  for (const frac of GAIT_PATTERN[gait]) {
+    noiseBurst(surface === 'mud' ? 0.12 : 0.07, base + Math.random() * 60, vol * (0.8 + Math.random() * 0.4), frac * strideT);
+  }
+}
+function sfxWhinny() {
+  if (!AC || !soundOn) return;
+  const t = AC.currentTime;
+  const o = AC.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(640, t);
+  o.frequency.exponentialRampToValueAtTime(270, t + 0.5);
+  const lfo = AC.createOscillator();
+  lfo.frequency.value = 15;
+  const lfoGain = AC.createGain();
+  lfoGain.gain.value = 45;
+  lfo.connect(lfoGain); lfoGain.connect(o.frequency);
+  const f = AC.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 1400;
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.09, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.connect(f); f.connect(g); g.connect(masterGain);
+  o.start(t); lfo.start(t);
+  o.stop(t + 0.6); lfo.stop(t + 0.6);
+}
+function sfxCheer() {
+  if (!AC || !soundOn) return;
+  noiseBurst(0.5, 1100, 0.07);
+  for (let i = 0; i < 3; i++) {
+    tone(320 + Math.random() * 320, 0.16, 0.035, 'sawtooth', 60);
+  }
+}
+function sfxBaa() {
+  tone(230, 0.16, 0.06, 'sawtooth', -25);
+  setTimeout(() => tone(195, 0.22, 0.05, 'sawtooth', -20), 140);
+}
+function sfxCreak() { tone(85, 0.5, 0.06, 'sawtooth', 22); }
+function sfxClick() { ensureAudio(); tone(500, 0.05, 0.1, 'square'); }
+function sfxDing() { tone(880, 1.2, 0.16, 'sine'); tone(880 * 2.7, 0.7, 0.05, 'sine'); }
 function sfxThud() { noiseBurst(0.25, 140, 0.55); tone(75, 0.3, 0.35, 'sine'); }
 function sfxJump() { tone(300, 0.25, 0.14, 'sine', 260); }
 function sfxSurge() {
@@ -1908,11 +2076,30 @@ function updateRacerVisual(r, dt) {
   v.group.rotation.y = -r.heading;   // model faces +x
   r.animPhase += dt * (2 + r.speed * 1.6);
   const amp = Math.min(0.5, r.speed / 14);
+  const ph = r.animPhase;
   v.legs.forEach((leg, i) => {
-    leg.rotation.z = Math.sin(r.animPhase + i * ((i < 2) ? Math.PI : Math.PI * 0.5)) * amp * 1.4;
+    // front pair leads, back pair follows; trot alternates sides, gallop reaches together
+    const pairOff = (i < 2) ? 0 : Math.PI * (0.4 + r.gait * 0.25);
+    const sideOff = (i % 2) * Math.PI * (r.gait === 0 ? 1 : 0.12);
+    leg.rotation.z = Math.sin(ph + pairOff + sideOff) * amp * (1.1 + r.gait * 0.25);
   });
-  v.group.position.y += Math.abs(Math.sin(r.animPhase)) * amp * 0.35;
+  v.group.position.y += Math.abs(Math.sin(ph)) * amp * 0.35;
+  // body language: rock at speed, nose-up launch and nose-down landing in air, dip on stumble
+  let pitch = Math.sin(ph) * amp * 0.14;
+  if (r.air > 0) {
+    const at = r.airT / r.air;
+    pitch = at < 0.5 ? -0.28 * (1 - at * 2) - 0.05 : 0.3 * (at - 0.5) * 2;
+  } else if (r.stumble > 0.4) {
+    pitch = 0.35;
+  }
+  v.group.rotation.z = pitch;
+  v.body.scale.x = 1.5 * (1 + Math.min(0.09, r.speed * 0.007) + (r.air > 0 ? 0.1 : 0));
   v.cape.rotation.x = 0.35 + Math.min(0.9, r.speed / 12);
+  // landing dust for every horse
+  if (r.air <= 0 && r.prevAirAll) {
+    for (let d = 0; d < 3; d++) spawnDust(r.x + (Math.random() - 0.5), gy, r.z + (Math.random() - 0.5), 0.6);
+  }
+  r.prevAirAll = r.air > 0;
   if (v.marker.visible) v.marker.rotation.y += dt * 2.2;
   // a burst of streaks on the player's up-shift sells the gear change
   if (r.isPlayer) {
@@ -1941,7 +2128,12 @@ function updateRacerVisual(r, dt) {
   if (r.isPlayer) {
     if (r.air <= 0 && r.speed > 1.2) {
       r.hoofAcc = (r.hoofAcc || 0) + dt * r.speed;
-      if (r.hoofAcc > 2.6) { r.hoofAcc %= 2.6; sfxHoof(r.gait); }
+      if (r.hoofAcc > 2.6) {
+        r.hoofAcc %= 2.6;
+        const strideT = 2.6 / Math.max(2, r.speed);
+        const surface = inMudAt(r.x, r.z) ? 'mud' : (Math.abs(r.lateral) < 5.5 ? 'dirt' : 'grass');
+        sfxHoof(r.gait, strideT, surface);
+      }
     }
     if (r.air > 0 && !r.wasAirVis) sfxJump();
     if (r.air <= 0 && r.wasAirVis) sfxLand(r.speed);
@@ -1999,7 +2191,7 @@ function updateCamera(dt) {
     camera.position.z += (Math.random() - 0.5) * 0.22;
   }
   camera.lookAt(camTarget);
-  sun.position.set(camTarget.x - 90, 120, camTarget.z + 40);
+  sun.position.set(camTarget.x - 110, 85, camTarget.z + 30);
   sun.target.position.copy(camTarget);
 }
 
@@ -2009,7 +2201,7 @@ let tut = null;
 const world = {
   time: 0, dt: 0, rng: mulberry32(Date.now() & 0xffff),
   onBlown: () => { flash('BLOWN! Drop to trot and breathe', 2.5); sfxThud(); },
-  onStumble: () => { flash('Stumbled!', 2); sfxThud(); },
+  onStumble: () => { flash('Stumbled!', 2); sfxThud(); sfxWhinny(); },
   onSurge: () => { flash('Clean jump — surge!', 1.4); sfxSurge(); },
 };
 let countdown = 0;
@@ -2050,7 +2242,7 @@ function restart() {
   delete world.lastPos;
   bigmsg.textContent = '';
 }
-function beginRace() { ensureAudio(); restart(); playMusic('race'); }
+function beginRace() { ensureAudio(); restart(); playMusic('race'); raceMusic.volume = 0.16; }
 
 // ---------------------------------------------------------------- settings UI
 function openSettings() { el('home').classList.remove('on'); el('settings').classList.add('on'); buildKeyRows(); refreshSoundBtn(); }
@@ -2265,6 +2457,7 @@ function advance(dt) {
       setTimeout(() => { if (bigmsg.textContent === 'RIDE!') bigmsg.textContent = ''; }, 900);
       flash(`${keyName(KEYS.gaitUp)} shifts up a gait — gallop drains the horse, trot restores it`, 4.5);
       sfxHorn(2);
+      raceMusic.volume = 0.33;
     }
   }
 
@@ -2279,7 +2472,8 @@ function advance(dt) {
     stepDeer(dt);
     const p = racers[0];
     setWindLevel(Math.max(0, Math.min(1, p.speed / 11) - 0.62) * 0.35);
-    if (p.finished) endRace();
+    updateZoneAudio(dt, p);
+    if (p.finished) { sfxDing(); spawnPetals(); endRace(); }
   }
 
   if (state === 'tut') {
@@ -2297,18 +2491,25 @@ function advance(dt) {
     updateDust(dt);
     if (state !== 'done') updateHUD(world);
   } else {
-    // home menu: slow orbit over the start
-    const st = routeAt(30);
-    camTarget.set(st.x, groundHeight(st.x, st.z), st.z);
+    // home menu: a slow cinematic tour of the whole course behind the card
     const t = performance.now() / 1000;
-    camera.position.set(st.x + Math.cos(t * 0.1) * 60, 62, st.z + Math.sin(t * 0.1) * 60);
-    camera.lookAt(camTarget);
+    const s = 20 + (t * 7) % (R.len - 70);
+    const p0 = routeAt(s);
+    const gy = groundHeight(p0.x, p0.z);
+    camTarget.set(p0.x, gy, p0.z);
+    camera.position.set(p0.x + 33, gy + 22, p0.z + 33);
+    const ahead = routeAt(s + 28);
+    camera.lookAt(ahead.x, groundHeight(ahead.x, ahead.z) + 2, ahead.z);
+    sun.position.set(camTarget.x - 110, 85, camTarget.z + 30);
+    sun.target.position.copy(camTarget);
   }
+  const tNow = performance.now() / 1000;
   updateClouds(dt);
-  updateWater(performance.now() / 1000);
+  updateWater(tNow);
   updateCrowd();
-  updateAmbient(dt, performance.now() / 1000);
+  updateAmbient(dt, tNow);
   updateWind(dt);
+  updatePetalsAndLeaves(dt, tNow);
   skyDome.position.copy(camTarget);
   renderer.render(scene, camera);
 }
@@ -2390,6 +2591,10 @@ function sim(n = 21, seed = 1234, trace = false) {
 }
 
 let autopilot = false;
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('button')) sfxClick();
+});
+
 window.TANTIVY = {
   sim, world, routeLen: R.len,
   get racers() { return racers; },
